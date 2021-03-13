@@ -37,13 +37,13 @@ approx = "0.4"
 legion-prefab = { version = "0.1", git = "https://github.com/amethyst/prefab", rev = "7c30249f106e6177549e223ca2823eec8ab6c70b" }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-rendy = { version = "0.5", git = "https://github.com/Elabajaba/rendy.git", rev = "762524747d212d8464792c332de0f226f7ac2870", default-features = false, features = ["metal"] }
+rendy = { version = "0.5", git = "https://github.com/Elabajaba/rendy.git", default-features = false, features = ["metal"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-rendy = { version = "0.5", git = "https://github.com/Elabajaba/rendy.git", rev = "762524747d212d8464792c332de0f226f7ac2870", default-features = false, features = ["vulkan"] }
+rendy = { version = "0.5", git = "https://github.com/Elabajaba/rendy.git", default-features = false, features = ["vulkan"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-rendy = { version = "0.5", git = "https://github.com/Elabajaba/rendy.git", rev = "762524747d212d8464792c332de0f226f7ac2870", default-features = false, features = ["vulkan"] }
+rendy = { version = "0.5", git = "https://github.com/Elabajaba/rendy.git", default-features = false, features = ["vulkan"] }
 
 [dev-dependencies]
 amethyst = { path = "../", version = "0.15.3", features = ["renderer"] }
