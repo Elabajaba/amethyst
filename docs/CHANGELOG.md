@@ -11,18 +11,29 @@ The format is based on [Keep a Changelog][kc], and this project adheres to
 ## [Unreleased]
 
 ### Added
+- Support for JSON & Binary config files ([#2387])
 
 ### Changed
 
+- Upgraded `approx` dependency from `0.3` to `0.4`. ([#2521])
+- Upgraded `nalgebra` dependency from `0.19` to `0.23`. ([#2521])
+- Upgraded `rayon` dependency from `1.4` to `1.5`. ([#2521])
+- Replaced `alga` dependency with `simba` to be compatible with `nalgebra 0.23`. ([#2521])
 - Upgraded from `rayon 1.3.0` to `rayon 1.4.0`, drastically decreasing idle CPU usage in some situations ([#2489])
 - Make `TextEditingPrefab` public ([#2492])
 - Replace `clipboard` crate with `copypasta` (see #2438)
 - Make ui a default but optional feature ([#2490])
+- Tile maps are now properly centered at their transform location ([#2540])
+- Allow config files and text assets to be encoded with UTF-8-BOM & UTF-16-BOM ([#2487])
+
+[#2487]: https://github.com/amethyst/amethyst/pull/2487
 
 ### Fixed
 
+[#2387]: https://github.com/amethyst/amethyst/issues/2387
 [#2489]: https://github.com/amethyst/amethyst/pull/2489
 [#2492]: https://github.com/amethyst/amethyst/pull/2492
+[#2521]: https://github.com/amethyst/amethyst/pull/2521
 
 ## [0.15.3] - 2020-08-22
 
@@ -47,7 +58,7 @@ The format is based on [Keep a Changelog][kc], and this project adheres to
 ### Added
 
 - New `optional_graphics` example demonstrating running an app with and without graphics ([#2282])
-- Return a standalone `Dispatcher` from `GameDataBuilder::build_dispatcher`
+- Return a standalone `Dispatcher` from `DispatcherBuilder::build_dispatcher`
   instead of using `DataInit` to build a `GameData` ([#2294])
 - Added _User Interface_ chapter to The Book ([#2311], [#2346], [#2347], [#2368], [#2373])
 - Support text alignment in `UiButton` and `UiLabel` ([#2316])
@@ -412,7 +423,7 @@ The format is based on [Keep a Changelog][kc], and this project adheres to
 - Splitted the `/resources` directory of amethyst projects into `/assets` and `/config`. ([#1806])
 - Rename FPSCounter, FPSCounterBundle, FPSCounterSystem to FpsCounter, FpsCounterBundle, FpsCounterSystem. ([#1719])
 - Add Tint component support for sprites. ([#1756])
-- Remove remaining <N: RealField> type parameter on GameDataBuilder, add Debug derive to LoggerConfig ([#1758])
+- Remove remaining <N: RealField> type parameter on DispatcherBuilder, add Debug derive to LoggerConfig ([#1758])
 - Inverted mouse wheel scroll direction event. Now using winit's standard. ([#1767])
 - Add `load_from_data_async` to Asset Loader. ([#1753])
 - Add `SerializableFormat` marker trait which is now needed to be implemented for all the formats that are supposed to be serialized. ([#1720])
@@ -980,7 +991,7 @@ The format is based on [Keep a Changelog][kc], and this project adheres to
 - Add transparency support to core passes ([#543]), ([#574]), ([#584])
 - Add vertex skinning ([#545]), ([#619])
 - Expose a basic visibility ordering system, with the ability to swap in better replacement systems ([#595])
-- Audio `Output` is now added directly rather than as an `Option`, should now be fetched with `Option<Read<'a, Output>>` ([#679])
+- Audio `Output` is now added directly rather than as an `Option`, should now be fetched with `Option<.read_resource::<Output>>()` ([#679])
 - New nightly feature that enables `shred`s nightly feature ([#689])
 - `Transform` refactored, and added lots of utility functions ([#660])
 - Add new raw mouse events for use with camera rotation ([#699])

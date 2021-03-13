@@ -1,5 +1,4 @@
 //! 2D/3D Tile data structures and functionality.
-//!
 
 #![doc(
     html_logo_url = "https://amethyst.rs/brand/logo-standard.svg",
@@ -15,17 +14,16 @@ mod pass;
 pub mod error;
 pub mod iters;
 pub mod pod;
-pub mod prefab;
 
+use amethyst_core::math::Vector3;
 pub use error::TileOutOfBoundsError;
 pub use iters::{MortonRegion, Region};
 pub use map::{Map, MapStorage, Tile, TileMap};
 pub use morton::{MortonEncoder, MortonEncoder2D};
 pub use pass::{
-    DrawTiles2D, DrawTiles2DBounds, DrawTiles2DBoundsDefault, DrawTiles2DDesc, RenderTiles2D,
+    DrawTiles2D, DrawTiles2DBounds, DrawTiles2DBoundsCameraCulling, DrawTiles2DBoundsDefault,
+    DrawTiles2DDesc, RenderTiles2D,
 };
-
-use amethyst_core::math::Vector3;
 
 /// Trait to provide generic access to various encoding schemas. All tile storages use this to encode their coordinates
 /// and provide different spatial encoding algorithms for efficiency.

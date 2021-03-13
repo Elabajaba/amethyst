@@ -1,5 +1,5 @@
 //! This crate implements various derive macros for easing the use of various amethyst features.
-//! At the moment, this consists of event readers, prefab and UI widget derives.
+//! At the moment, this consists of event readers and UI widget derives.
 
 #![doc(
     html_logo_url = "https://amethyst.rs/brand/logo-standard.svg",
@@ -19,11 +19,10 @@
 extern crate proc_macro;
 
 use proc_macro::TokenStream;
+use proc_macro2::{Ident, Span};
 use syn::{parse_macro_input, DeriveInput};
 
 mod event_reader;
-mod prefab_data;
-mod system_desc;
 mod widget_id;
 
 /// EventReader
@@ -31,17 +30,6 @@ mod widget_id;
 pub fn event_reader_derive(input: TokenStream) -> TokenStream {
     let ast = parse_macro_input!(input as DeriveInput);
     let gen = event_reader::impl_event_reader(&ast);
-    gen.into()
-}
-
-/// Deriving a `Prefab` requires that `amethyst::ecs::Entity`,
-/// `amethyst:assets::{PrefabData, ProgressCounter}` and
-/// `amethyst::error::Error` are imported and visible in the current scope. This
-/// is due to how Rust macros work.
-#[proc_macro_derive(PrefabData, attributes(prefab))]
-pub fn prefab_data_derive(input: TokenStream) -> TokenStream {
-    let ast = parse_macro_input!(input as DeriveInput);
-    let gen = prefab_data::impl_prefab_data(&ast);
     gen.into()
 }
 
@@ -57,15 +45,36 @@ pub fn widget_id_derive(input: TokenStream) -> TokenStream {
     gen.into()
 }
 
-/// Derive a `SystemDesc` implementation.
-///
-/// The `SystemDesc` is passed to the `GameData` to instantiate the `System` when building the
-/// dispatcher.
-///
-/// This derive may be used for `System`s that do not require special code for `System::setup`.
-#[proc_macro_derive(SystemDesc, attributes(system_desc))]
-pub fn system_desc_derive(input: TokenStream) -> TokenStream {
-    let ast = parse_macro_input!(input as DeriveInput);
-    let gen = system_desc::impl_system_desc(&ast);
-    gen.into()
+use std::path::Path;
+
+use glob::glob;
+use quote::quote;
+
+/// creates test out of every *.md file in the repo
+#[proc_macro]
+pub fn make_doc_tests(_: TokenStream) -> TokenStream {
+    let doc_paths: Vec<String> = glob("**/*.md")
+        .expect("bad glob")
+        .map(|entry| "../".to_string() + &entry.unwrap().to_string_lossy())
+        .collect();
+
+    let idents = doc_paths
+        .iter()
+        .cloned()
+        .map(|s| {
+            Path::new(&s)
+                .to_string_lossy()
+                .into_owned()
+                .replace("-", "_")
+                .replace("/", "_")
+                .replace("\\", "_")
+                .replace(".", "")
+        })
+        .map(|s| Ident::new(&s, Span::call_site()));
+
+    let expanded = quote! {
+        #(doctest!(#doc_paths, #idents);)*
+    };
+
+    expanded.into()
 }

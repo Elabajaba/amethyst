@@ -2,7 +2,7 @@
 
 Renders debug lines with a 3D perspective via two separate methods: The
 [`DebugLines`] [resource] and the [`DebugLinesComponent`] [component].
-Internally, `DebugLines` is just a wrapper around a `DebugLinesComponent`, but
+Internally, `DebugLines` is a wrapper around a `DebugLinesComponent`, but
 they each have their separate, specific use cases.
 
 The resource method is useful for rendering moving lines such as the purple ones
@@ -19,20 +19,20 @@ render entities with a `DebugLinesComponent`.
 
 Keybindings:
 
-* `w` - Move forward
-* `a` - Move left
-* `s` - Move backwards
-* `d` - Move left
-* `e` - Move upwards
-* `q` - Move downwards
-* `mouse` - Rotate view
+- `w` - Move forward
+- `a` - Move left
+- `s` - Move backwards
+- `d` - Move left
+- `e` - Move upwards
+- `q` - Move downwards
+- `mouse` - Rotate view
 
 ![debug lines example screenshot](./screenshot.png)
 
 [component]: https://docs-src.amethyst.rs/stable/specs/trait.Component.html
-[`DebugLines`]: https://docs-src.amethyst.rs/stable/amethyst_rendy/debug_drawing/struct.DebugLines.html
-[`DebugLinesComponent`]: https://docs-src.amethyst.rs/stable/amethyst_rendy/debug_drawing/struct.DebugLinesComponent.html
-[`RenderDebugLines`]: https://docs-src.amethyst.rs/stable/amethyst_rendy/struct.RenderDebugLines.html
-[`RenderPlugin`]: https://docs-src.amethyst.rs/stable/amethyst_rendy/trait.RenderPlugin.html
 [resource]: https://book-src.amethyst.rs/master/concepts/resource.html
-[`System`]: https://docs-src.amethyst.rs/stable/specs/trait.System.html
+[`debuglinescomponent`]: https://docs-src.amethyst.rs/stable/amethyst_rendy/debug_drawing/struct.DebugLinesComponent.html
+[`debuglines`]: https://docs-src.amethyst.rs/stable/amethyst_rendy/debug_drawing/struct.DebugLines.html
+[`renderdebuglines`]: https://docs-src.amethyst.rs/stable/amethyst_rendy/struct.RenderDebugLines.html
+[`renderplugin`]: https://docs-src.amethyst.rs/stable/amethyst_rendy/trait.RenderPlugin.html
+[`system`]: https://docs-src.amethyst.rs/stable/specs/trait.System.html

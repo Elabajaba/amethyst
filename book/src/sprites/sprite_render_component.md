@@ -2,7 +2,10 @@
 
 After loading the `SpriteSheet`, you need to attach it to an entity using the `SpriteRender` component and indicate which sprite to draw. The `SpriteRender` component looks like this:
 
-```rust,ignore
+```rust
+use amethyst::assets::Handle;
+use amethyst::renderer::SpriteSheet;
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpriteRender {
     /// Handle to the sprite sheet of the sprite
@@ -16,87 +19,89 @@ The sprite number is the index of the sprite loaded in the sprite sheet. What's 
 
 In the previous section you wrote a function that returns a `SpriteSheet`. This can be turned into a `Handle<SpriteSheet>` using the `Loader` resource as follows:
 
-```rust,edition2018,no_run,noplaypen
-# extern crate amethyst;
-use amethyst::assets::{AssetStorage, Loader, Handle};
-# use amethyst::prelude::*;
+```rust
+use amethyst::assets::{AssetStorage, DefaultLoader, Handle, Loader, ProcessingQueue};
+use amethyst::prelude::*;
 use amethyst::renderer::{SpriteSheet, Texture};
 
 # pub fn load_texture<N>(name: N, world: &World) -> Handle<Texture>
 # where
-#     N: Into<String>,
+#   N: Into<String>,
 # {
-#     unimplemented!();
+#   unimplemented!();
 # }
-#
+# 
 # pub fn load_sprite_sheet(texture: Handle<Texture>) -> SpriteSheet {
-#     unimplemented!();
+#   unimplemented!();
 # }
+
 #[derive(Debug)]
 struct ExampleState;
 
 impl SimpleState for ExampleState {
-    fn on_start(&mut self, mut data: StateData<'_, GameData<'_, '_>>) {
-#         let texture_handle = load_texture("texture/sprite_sheet.png", &data.world);
+    fn on_start(&mut self, mut data: StateData<'_, GameData>) {
+#       let texture_handle = load_texture("texture/sprite_sheet.png", &data.world);
         // ...
 
         let sprite_sheet = load_sprite_sheet(texture_handle);
-        let sprite_sheet_handle = {
-            let loader = data.world.read_resource::<Loader>();
+        let sprite_sheet_handle: Handle<SpriteSheet> = {
+            let loader = data.resources.get::<DefaultLoader>().unwrap();
             loader.load_from_data(
                 sprite_sheet,
                 (),
-                &data.world.read_resource::<AssetStorage<SpriteSheet>>(),
+                &data
+                    .resources
+                    .get::<ProcessingQueue<SpriteSheet>>()
+                    .unwrap(),
             )
         };
     }
 }
-#
 # fn main() {}
 ```
 
 Cool, finally we have all the parts, let's build a `SpriteRender` and attach it to an entity:
 
-```rust,edition2018,no_run,noplaypen
-# extern crate amethyst;
-# use amethyst::assets::{AssetStorage, Loader, Handle};
+```rust
+use amethyst::assets::{AssetStorage, DefaultLoader, Handle, Loader, ProcessingQueue};
 use amethyst::core::transform::Transform;
-# use amethyst::prelude::*;
-use amethyst::renderer::{
-    SpriteRender, SpriteSheet,
-    Texture, Transparent
-};
+use amethyst::prelude::*;
+use amethyst::renderer::{SpriteRender, SpriteSheet, Texture, Transparent};
 use amethyst::window::ScreenDimensions;
 
 # pub fn load_texture<N>(name: N, world: &World) -> Handle<Texture>
 # where
-#     N: Into<String>,
+#   N: Into<String>,
 # {
-#     unimplemented!();
+#   unimplemented!();
 # }
-#
+# 
 # pub fn load_sprite_sheet(texture: Handle<Texture>) -> SpriteSheet {
-#     unimplemented!();
+#   unimplemented!();
 # }
+
 #[derive(Debug)]
 struct ExampleState;
 
 impl SimpleState for ExampleState {
-    fn on_start(&mut self, mut data: StateData<'_, GameData<'_, '_>>) {
-#         let texture_handle = load_texture("texture/sprite_sheet.png", &data.world);
-#
-#         let sprite_sheet = load_sprite_sheet(texture_handle);
-#         let sprite_sheet_handle = {
-#             let loader = data.world.read_resource::<Loader>();
-#             loader.load_from_data(
-#                 sprite_sheet,
-#                 (),
-#                 &data.world.read_resource::<AssetStorage<SpriteSheet>>(),
-#             )
-#         };
+    fn on_start(&mut self, mut data: StateData<'_, GameData>) {
+#       let texture_handle = load_texture("texture/sprite_sheet.png", &data.world);
+# 
+#       let sprite_sheet = load_sprite_sheet(texture_handle);
+#       let sprite_sheet_handle = {
+#           let loader = data.resources.get::<DefaultLoader>().unwrap();
+#           loader.load_from_data(
+#               sprite_sheet,
+#               (),
+#               &data
+#                   .resources
+#                   .get::<ProcessingQueue<SpriteSheet>>()
+#                   .unwrap(),
+#           )
+#       };
         // ...
 
-        self.initialize_sprite(&mut data.world, sprite_sheet_handle);
+        self.initialize_sprite(&mut data.world, data.resources, sprite_sheet_handle);
     }
 }
 
@@ -104,10 +109,11 @@ impl ExampleState {
     fn initialize_sprite(
         &mut self,
         world: &mut World,
+        resources: &Resources,
         sprite_sheet_handle: Handle<SpriteSheet>,
     ) {
         let (width, height) = {
-            let dim = world.read_resource::<ScreenDimensions>();
+            let dim = resources.get::<ScreenDimensions>().unwrap();
             (dim.width(), dim.height())
         };
 
@@ -116,17 +122,11 @@ impl ExampleState {
         sprite_transform.set_translation_xyz(width / 2., height / 2., 0.);
 
         // 0 indicates the first sprite in the sheet.
-        let sprite_render = SpriteRender::new(sprite_sheet_handle, 0);  // First sprite
+        let sprite_render = SpriteRender::new(sprite_sheet_handle, 0); // First sprite
 
-        world
-            .create_entity()
-            .with(sprite_render)
-            .with(sprite_transform)
-            .with(Transparent) // If your sprite is transparent
-            .build();
+        world.push((sprite_render, sprite_transform, Transparent));
     }
 }
-#
 # fn main() {}
 ```
 

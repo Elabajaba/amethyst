@@ -11,27 +11,36 @@
 //!
 //! # Example
 //!
-//! ```rust,no_run
-//! use amethyst::prelude::*;
-//! use amethyst::winit::{Event, KeyboardInput, VirtualKeyCode, WindowEvent};
+//! ```no_run
+//! use amethyst::{
+//!     prelude::*,
+//!     winit::event::{Event, KeyboardInput, VirtualKeyCode, WindowEvent},
+//! };
 //!
 //! struct GameState;
 //!
 //! impl SimpleState for GameState {
-//!     fn on_start(&mut self, _: StateData<'_, GameData<'_, '_>>) {
+//!     fn on_start(&mut self, _: StateData<'_, GameData>) {
 //!         println!("Starting game!");
 //!     }
 //!
-//!     fn handle_event(&mut self, _: StateData<'_, GameData<'_, '_>>, event: StateEvent) -> SimpleTrans {
+//!     fn handle_event(&mut self, _: StateData<'_, GameData>, event: StateEvent) -> SimpleTrans {
 //!         if let StateEvent::Window(event) = &event {
 //!             match event {
-//!                  Event::WindowEvent { event, .. } => match event {
-//!                     WindowEvent::KeyboardInput {
-//!                         input: KeyboardInput { virtual_keycode: Some(VirtualKeyCode::Escape), .. }, ..
-//!                     } |
-//!                     WindowEvent::CloseRequested => Trans::Quit,
-//!                     _ => Trans::None,
-//!                 },
+//!                 Event::WindowEvent { event, .. } => {
+//!                     match event {
+//!                         WindowEvent::KeyboardInput {
+//!                             input:
+//!                                 KeyboardInput {
+//!                                     virtual_keycode: Some(VirtualKeyCode::Escape),
+//!                                     ..
+//!                                 },
+//!                             ..
+//!                         }
+//!                         | WindowEvent::CloseRequested => Trans::Quit,
+//!                         _ => Trans::None,
+//!                     }
+//!                 }
 //!                 _ => Trans::None,
 //!             }
 //!         } else {
@@ -39,7 +48,7 @@
 //!         }
 //!     }
 //!
-//!     fn update(&mut self, _: &mut StateData<'_, GameData<'_, '_>>) -> SimpleTrans {
+//!     fn update(&mut self, _: &mut StateData<'_, GameData>) -> SimpleTrans {
 //!         println!("Computing some more whoop-ass...");
 //!         Trans::Quit
 //!     }
@@ -47,7 +56,8 @@
 //!
 //! fn main() -> amethyst::Result<()> {
 //!     let assets_dir = "assets/";
-//!     let mut game = Application::new(assets_dir, GameState, GameDataBuilder::default())?;
+//!     let mut game_data = DispatcherBuilder::default();
+//!     let game = Application::build(assets_dir, GameState)?.build(game_data)?;
 //!     game.run();
 //!     Ok(())
 //! }
@@ -82,40 +92,45 @@ pub use amethyst_input as input;
 pub use amethyst_locale as locale;
 #[cfg(feature = "network")]
 pub use amethyst_network as network;
+#[cfg(feature = "renderer")]
 pub use amethyst_rendy as renderer;
 #[cfg(feature = "tiles")]
 pub use amethyst_tiles as tiles;
 #[cfg(feature = "ui")]
 pub use amethyst_ui as ui;
+#[cfg(feature = "utils")]
 pub use amethyst_utils as utils;
 pub use amethyst_window as window;
 pub use winit;
 
-pub use crate::core::{ecs, shred, shrev};
-#[doc(hidden)]
-pub use crate::derive::*;
-
 pub use self::{
     app::{Application, ApplicationBuilder, CoreApplication},
-    callback_queue::{Callback, CallbackQueue},
+    core::{
+        ecs,
+        logger::{start_logger, LevelFilter as LogLevelFilter, Logger, LoggerConfig, StdoutLog},
+        shrev, Result,
+    },
     error::Error,
-    game_data::{DataDispose, DataInit, GameData, GameDataBuilder},
-    logger::{start_logger, LevelFilter as LogLevelFilter, Logger, LoggerConfig, StdoutLog},
+    game_data::{DataDispose, DataInit, GameData},
     state::{
         EmptyState, EmptyTrans, SimpleState, SimpleTrans, State, StateData, StateMachine, Trans,
         TransEvent,
     },
     state_event::{StateEvent, StateEventReader},
 };
-
-/// Convenience alias for use in main functions that uses Amethyst.
-pub type Result<T> = std::result::Result<T, error::Error>;
+#[doc(hidden)]
+pub use crate::derive::*;
 
 pub mod prelude;
 
 mod app;
-mod callback_queue;
 mod game_data;
-mod logger;
 mod state;
 mod state_event;
+
+#[cfg(doctest)]
+#[macro_use]
+extern crate doc_comment;
+
+#[cfg(doctest)]
+amethyst_derive::make_doc_tests! {}

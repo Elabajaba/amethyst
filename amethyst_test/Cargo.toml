@@ -1,7 +1,10 @@
 [package]
 name = "amethyst_test"
 version = "0.15.3"
-authors = ["Azriel Hoh <azriel91@gmail.com>", "Amethyst Foundation <contact@amethyst.rs>"]
+authors = [
+    "Azriel Hoh <azriel91@gmail.com>",
+    "Amethyst Foundation <contact@amethyst.rs>",
+]
 edition = "2018"
 description = "Amethyst test utilities crate"
 keywords = ["test", "amethyst"]
@@ -21,14 +24,12 @@ lazy_static = "1.4"
 log = "0.4"
 
 [dev-dependencies]
-serde = "1.0"
+amethyst = { path = "../", version = "0.15.3", features = ["renderer"] }
+serde = "1"
 
 [features]
 default = ["animation", "audio", "locale", "network", "renderer"]
 
-vulkan = ["amethyst/vulkan"]
-metal = ["amethyst/metal"]
-empty = ["amethyst/empty"]
 tiles = ["amethyst/tiles"]
 animation = ["amethyst/animation"]
 audio = ["amethyst/audio"]
@@ -39,7 +40,6 @@ renderer = ["amethyst/renderer"]
 profiler = ["amethyst/profiler"]
 sdl_controller = ["amethyst/sdl_controller"]
 json = ["amethyst/json"]
-saveload = ["amethyst/saveload"]
 server = ["amethyst/server"]
 no-slow-safety-checks = ["amethyst/no-slow-safety-checks"]
 shader-compiler = ["amethyst/shader-compiler"]

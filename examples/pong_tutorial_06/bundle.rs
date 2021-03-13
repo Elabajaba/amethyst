@@ -1,32 +1,30 @@
-use crate::systems::{BounceSystem, MoveBallsSystem, PaddleSystem, WinnerSystem};
 use amethyst::{
-    core::bundle::SystemBundle,
-    ecs::{DispatcherBuilder, World},
+    core::ecs::SystemBundle,
+    ecs::{DispatcherBuilder, Resources, World},
     error::Error,
 };
 
-/// A bundle is a convenient way to initialise related resources, components and systems in a
+use crate::systems::{
+    bounce::BounceSystem, move_balls::BallSystem, paddle::PaddleSystem, winner::WinnerSystem,
+};
+
+/// A bundle is a convenient way to initialize related resources, components and systems in a
 /// world. This bundle prepares the world for a game of pong.
 pub struct PongBundle;
 
-impl<'a, 'b> SystemBundle<'a, 'b> for PongBundle {
-    fn build(
-        self,
+impl SystemBundle for PongBundle {
+    fn load(
+        &mut self,
         _world: &mut World,
-        builder: &mut DispatcherBuilder<'a, 'b>,
+        _resources: &mut Resources,
+        builder: &mut DispatcherBuilder,
     ) -> Result<(), Error> {
-        builder.add(PaddleSystem, "paddle_system", &["input_system"]);
-        builder.add(MoveBallsSystem, "ball_system", &[]);
-        builder.add(
-            BounceSystem,
-            "collision_system",
-            &["paddle_system", "ball_system"],
-        );
-        builder.add(
-            WinnerSystem,
-            "winner_system",
-            &["paddle_system", "ball_system"],
-        );
+        builder
+            .add_system(PaddleSystem)
+            .add_system(BallSystem)
+            .flush()
+            .add_system(BounceSystem)
+            .add_system(WinnerSystem);
         Ok(())
     }
 }

@@ -1,198 +1,95 @@
-use std::{collections::HashMap, marker::PhantomData};
+use std::collections::{HashMap, HashSet};
 
-use derivative::Derivative;
-use log::error;
-
-use amethyst_core::{
-    ecs::{
-        storage::ComponentEvent, BitSet, Entities, Entity, Join, Read, ReadExpect, ReadStorage,
-        ReaderId, System, SystemData, World, Write, WriteStorage,
-    },
-    ArcThreadPool, Parent, SystemDesc, Time,
+use amethyst_core::ecs::{
+    query, world::EntityHasher, Entity, IntoQuery, Resources, TryWrite, World,
 };
-use amethyst_error::{format_err, Error, ResultExt};
 
-#[cfg(feature = "profiler")]
-use thread_profiler::profile_scope;
+use crate::{
+    prefab::{ComponentRegistry, Prefab},
+    AssetStorage, Handle,
+};
 
-use crate::{AssetStorage, Completion, Handle, HotReloadStrategy, ProcessingState};
-
-use super::{Prefab, PrefabData, PrefabTag};
-
-/// Builds a `PrefabLoaderSystem`.
-#[derive(Derivative, Debug)]
-#[derivative(Default(bound = ""))]
-pub struct PrefabLoaderSystemDesc<T> {
-    marker: PhantomData<T>,
+struct PrefabInstance {
+    version: u32,
+    entity_map: HashMap<Entity, Entity, EntityHasher>,
 }
 
-impl<'a, 'b, T> SystemDesc<'a, 'b, PrefabLoaderSystem<T>> for PrefabLoaderSystemDesc<T>
-where
-    T: PrefabData<'a> + Send + Sync + 'static,
-{
-    fn build(self, world: &mut World) -> PrefabLoaderSystem<T> {
-        <PrefabLoaderSystem<T> as System<'_>>::SystemData::setup(world);
+/// Attaches prefabs to entities that have Handle<Prefab>
+pub fn prefab_spawning_tick(world: &mut World, resources: &mut Resources) {
+    let component_registry = resources
+        .get::<ComponentRegistry>()
+        .expect("ComponentRegistry can not be retrieved from ECS Resources");
+    let prefab_storage = resources
+        .get::<AssetStorage<Prefab>>()
+        .expect("AssetStorage<Prefab> can not be retrieved from ECS Resources");
 
-        let insert_reader = WriteStorage::<Handle<Prefab<T>>>::fetch(&world).register_reader();
+    let mut prefabs: Vec<(
+        Entity,
+        &legion_prefab::CookedPrefab,
+        u32,
+        HashMap<Entity, Entity, EntityHasher>,
+    )> = Vec::new();
 
-        PrefabLoaderSystem::new(insert_reader)
-    }
-}
+    let mut entity_query = <(Entity,)>::query();
 
-/// System that load `Prefab`s for `PrefabData` `T`.
-///
-/// ### Type parameters:
-///
-/// - `T`: `PrefabData`
-pub struct PrefabLoaderSystem<T> {
-    _m: PhantomData<T>,
-    entities: Vec<Entity>,
-    finished: Vec<Entity>,
-    to_process: BitSet,
-    insert_reader: ReaderId<ComponentEvent>,
-    next_tag: u64,
-}
-
-impl<'a, T> PrefabLoaderSystem<T>
-where
-    T: PrefabData<'a> + Send + Sync + 'static,
-{
-    /// Creates a new `PrefabLoaderSystem`.
-    pub fn new(insert_reader: ReaderId<ComponentEvent>) -> Self {
-        Self {
-            _m: PhantomData,
-            entities: Vec::default(),
-            finished: Vec::default(),
-            to_process: BitSet::default(),
-            insert_reader,
-            next_tag: 0,
-        }
-    }
-}
-
-impl<'a, T> System<'a> for PrefabLoaderSystem<T>
-where
-    T: PrefabData<'a> + Send + Sync + 'static,
-{
-    #[allow(clippy::type_complexity)]
-    type SystemData = (
-        Entities<'a>,
-        Write<'a, AssetStorage<Prefab<T>>>,
-        ReadStorage<'a, Handle<Prefab<T>>>,
-        Read<'a, Time>,
-        ReadExpect<'a, ArcThreadPool>,
-        Option<Read<'a, HotReloadStrategy>>,
-        WriteStorage<'a, Parent>,
-        WriteStorage<'a, PrefabTag<T>>,
-        T::SystemData,
+    <(Entity, &Handle<Prefab>, TryWrite<PrefabInstance>)>::query().for_each_mut(
+        world,
+        |(entity, handle, instance)| {
+            if let Some(Prefab {
+                cooked: Some(cooked_prefab),
+                version: prefab_version,
+                ..
+            }) = prefab_storage.get(handle)
+            {
+                let instance_version = instance
+                    .as_ref()
+                    .map(|instance| instance.version)
+                    .unwrap_or(0);
+                if instance_version < *prefab_version {
+                    let mut entity_map = instance
+                        .as_ref()
+                        .map(|instance| instance.entity_map.clone())
+                        .unwrap_or_default();
+                    if entity_map.is_empty() {
+                        if let Some((root_entity,)) = entity_query.iter(&cooked_prefab.world).next()
+                        {
+                            entity_map.insert(*root_entity, *entity);
+                        }
+                    }
+                    prefabs.push((*entity, cooked_prefab, *prefab_version, entity_map));
+                }
+            }
+        },
     );
 
-    fn run(&mut self, data: Self::SystemData) {
-        #[cfg(feature = "profiler")]
-        profile_scope!("prefab_loader_system");
-
-        let (
-            entities,
-            mut prefab_storage,
-            prefab_handles,
-            time,
-            pool,
-            strategy,
-            mut parents,
-            mut tags,
-            mut prefab_system_data,
-        ) = data;
-        let strategy = strategy.as_deref();
-        prefab_storage.process(
-            |mut d| {
-                d.tag = Some(self.next_tag);
-                self.next_tag += 1;
-                if !d.loading()
-                    && !d
-                        .load_sub_assets(&mut prefab_system_data)
-                        .with_context(|_| format_err!("Failed starting sub asset loading"))?
-                {
-                    return Ok(ProcessingState::Loaded(d));
-                }
-                match d.progress().complete() {
-                    Completion::Complete => Ok(ProcessingState::Loaded(d)),
-                    Completion::Failed => {
-                        error!("Failed loading sub asset: {:?}", d.progress().errors());
-                        Err(Error::from_string("Failed loading sub asset"))
-                    }
-                    Completion::Loading => Ok(ProcessingState::Loading(d)),
-                }
-            },
-            time.frame_number(),
-            &**pool,
-            strategy,
+    for (entity, prefab, version, prev_entity_map) in prefabs.into_iter() {
+        let entity_map = world.clone_from(
+            &prefab.world,
+            &query::any(),
+            &mut component_registry.spawn_clone_impl(&resources, &prev_entity_map),
         );
-        prefab_handles
-            .channel()
-            .read(&mut self.insert_reader)
-            .for_each(|event| {
-                if let ComponentEvent::Inserted(id) = event {
-                    self.to_process.add(*id);
-                }
-            });
-        self.finished.clear();
-        for (root_entity, handle, _) in (&*entities, &prefab_handles, &self.to_process).join() {
-            if let Some(prefab) = prefab_storage.get(handle) {
-                self.finished.push(root_entity);
-                // create entities
-                self.entities.clear();
-                self.entities.push(root_entity);
 
-                let mut children = HashMap::new();
-                for entity_data in prefab.entities.iter().skip(1) {
-                    let new_entity = entities.create();
-                    self.entities.push(new_entity);
-                    if let Some(parent) = entity_data.parent {
-                        parents
-                            .insert(
-                                new_entity,
-                                Parent {
-                                    entity: self.entities[parent],
-                                },
-                            )
-                            .expect("Unable to insert `Parent` for prefab");
+        let live_entities: HashSet<Entity, EntityHasher> = entity_map.values().copied().collect();
+        let prev_entities: HashSet<_, _> = prev_entity_map.values().copied().collect();
 
-                        children
-                            .entry(parent)
-                            .or_insert_with(Vec::new)
-                            .push(new_entity);
-                    }
-                    tags.insert(
-                        new_entity,
-                        PrefabTag::new(
-                            prefab.tag.expect(
-                                "Unreachable: Every loaded prefab should have a `PrefabTag`",
-                            ),
-                        ),
-                    )
-                    .expect("Unable to insert `PrefabTag` for prefab entity");
-                }
-                // create components
-                for (index, entity_data) in prefab.entities.iter().enumerate() {
-                    if let Some(ref prefab_data) = &entity_data.data {
-                        prefab_data
-                            .add_to_entity(
-                                self.entities[index],
-                                &mut prefab_system_data,
-                                &self.entities,
-                                children
-                                    .get(&index)
-                                    .map(|children| &children[..])
-                                    .unwrap_or(&[]),
-                            )
-                            .expect("Unable to add prefab system data to entity");
-                    }
-                }
+        log::debug!("new entity_map: {:?}", entity_map);
+        log::debug!("old entity map: {:?}", prev_entity_map);
+
+        for value in prev_entities.difference(&live_entities).copied() {
+            if world.remove(value) {
+                log::debug!("Removed entity {:?}", value)
             }
         }
 
-        for entity in &self.finished {
-            self.to_process.remove(entity.id());
+        log::debug!("Spawn for {:?}", entity);
+
+        if let Some(mut entry) = world.entry(entity) {
+            entry.add_component(PrefabInstance {
+                version,
+                entity_map,
+            });
+        } else {
+            log::error!("Could not update entity");
         }
     }
 }

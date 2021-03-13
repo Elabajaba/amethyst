@@ -1,9 +1,5 @@
-//! Demonstrates how to use a custom game data structure
+//! Demonstrates how to use a custom game data structure with multiple dispatchers
 
-use crate::{
-    example_system::ExampleSystem,
-    game_data::{CustomGameData, CustomGameDataBuilder},
-};
 use amethyst::{
     assets::{
         Completion, Handle, Prefab, PrefabLoader, PrefabLoaderSystemDesc, ProgressCounter,
@@ -12,14 +8,17 @@ use amethyst::{
     core::transform::TransformBundle,
     ecs::{
         prelude::{Component, Entity},
-        NullStorage, WorldExt,
+        NullStorage,
     },
-    input::{is_close_requested, is_key_down, InputBundle, StringBindings},
+    input::{is_close_requested, is_key_down, InputBundle},
     prelude::*,
     renderer::{
         palette::Srgb,
         plugins::{RenderShaded3D, RenderToWindow},
-        rendy::mesh::{Normal, Position, TexCoord},
+        rendy::{
+            hal::command::ClearColor,
+            mesh::{Normal, Position, TexCoord},
+        },
         types::DefaultBackend,
         RenderingBundle,
     },
@@ -27,6 +26,11 @@ use amethyst::{
     utils::{application_root_dir, fps_counter::FpsCounterBundle, scene::BasicScenePrefab},
     winit::VirtualKeyCode,
     Error,
+};
+
+use crate::{
+    example_system::ExampleSystem,
+    game_data::{CustomDispatcherBuilder, CustomGameData},
 };
 
 mod example_system;
@@ -58,12 +62,8 @@ struct Paused {
 #[derive(Default)]
 struct Tag;
 
-impl Component for Tag {
-    type Storage = NullStorage<Self>;
-}
-
 impl<'a, 'b> State<CustomGameData<'a, 'b>, StateEvent> for Loading {
-    fn on_start(&mut self, data: StateData<'_, CustomGameData<'_, '_>>) {
+    fn on_start(&mut self, data: StateData<'_, CustomGameData>) {
         self.scene = Some(data.world.exec(|loader: PrefabLoader<'_, MyPrefabData>| {
             loader.load("prefab/renderable.ron", RonFormat, &mut self.progress)
         }));
@@ -85,7 +85,7 @@ impl<'a, 'b> State<CustomGameData<'a, 'b>, StateEvent> for Loading {
 
     fn handle_event(
         &mut self,
-        _: StateData<'_, CustomGameData<'_, '_>>,
+        _: StateData<'_, CustomGameData>,
         event: StateEvent,
     ) -> Trans<CustomGameData<'a, 'b>, StateEvent> {
         if let StateEvent::Window(event) = event {
@@ -98,7 +98,7 @@ impl<'a, 'b> State<CustomGameData<'a, 'b>, StateEvent> for Loading {
 
     fn update(
         &mut self,
-        data: StateData<'_, CustomGameData<'_, '_>>,
+        data: StateData<'_, CustomGameData>,
     ) -> Trans<CustomGameData<'a, 'b>, StateEvent> {
         data.data.update(&data.world, true);
         match self.progress.complete() {
@@ -124,7 +124,7 @@ impl<'a, 'b> State<CustomGameData<'a, 'b>, StateEvent> for Loading {
 impl<'a, 'b> State<CustomGameData<'a, 'b>, StateEvent> for Paused {
     fn handle_event(
         &mut self,
-        data: StateData<'_, CustomGameData<'_, '_>>,
+        data: StateData<'_, CustomGameData>,
         event: StateEvent,
     ) -> Trans<CustomGameData<'a, 'b>, StateEvent> {
         if let StateEvent::Window(event) = &event {
@@ -143,7 +143,7 @@ impl<'a, 'b> State<CustomGameData<'a, 'b>, StateEvent> for Paused {
 
     fn update(
         &mut self,
-        data: StateData<'_, CustomGameData<'_, '_>>,
+        data: StateData<'_, CustomGameData>,
     ) -> Trans<CustomGameData<'a, 'b>, StateEvent> {
         data.data.update(&data.world, false);
         Trans::None
@@ -151,13 +151,13 @@ impl<'a, 'b> State<CustomGameData<'a, 'b>, StateEvent> for Paused {
 }
 
 impl<'a, 'b> State<CustomGameData<'a, 'b>, StateEvent> for Main {
-    fn on_start(&mut self, data: StateData<'_, CustomGameData<'_, '_>>) {
-        data.world.create_entity().with(self.scene.clone()).build();
+    fn on_start(&mut self, data: StateData<'_, CustomGameData>) {
+        data.world.push((self.scene.clone(),);
     }
 
     fn handle_event(
         &mut self,
-        data: StateData<'_, CustomGameData<'_, '_>>,
+        data: StateData<'_, CustomGameData>,
         event: StateEvent,
     ) -> Trans<CustomGameData<'a, 'b>, StateEvent> {
         if let StateEvent::Window(event) = &event {
@@ -167,9 +167,7 @@ impl<'a, 'b> State<CustomGameData<'a, 'b>, StateEvent> for Main {
                 Trans::Push(Box::new(Paused {
                     ui: data
                         .world
-                        .create_entity()
-                        .with(self.paused_ui.clone())
-                        .build(),
+                        .push((self.paused_ui.clone(),)),
                 }))
             } else {
                 Trans::None
@@ -181,7 +179,7 @@ impl<'a, 'b> State<CustomGameData<'a, 'b>, StateEvent> for Main {
 
     fn update(
         &mut self,
-        data: StateData<'_, CustomGameData<'_, '_>>,
+        data: StateData<'_, CustomGameData>,
     ) -> Trans<CustomGameData<'a, 'b>, StateEvent> {
         data.data.update(&data.world, true);
         Trans::None
@@ -199,28 +197,29 @@ fn main() -> Result<(), Error> {
     let app_root = application_root_dir()?;
 
     // Add our meshes directory to the asset loader.
-    let assets_dir = app_root.join("examples/custom_game_data/assets");
+    let assets_dir = app_root.join("assets");
 
-    let display_config_path = app_root.join("examples/custom_game_data/config/display.ron");
+    let display_config_path = app_root.join("config/display.ron");
 
-    let game_data = CustomGameDataBuilder::default()
+    let mut game_data = CustomDispatcherBuilder::default()
         .with_base(PrefabLoaderSystemDesc::<MyPrefabData>::default(), "", &[])
         .with_running(ExampleSystem::default(), "example_system", &[])
         .with_base_bundle(TransformBundle::new())
         .with_base_bundle(FpsCounterBundle::default())
-        .with_base_bundle(InputBundle::<StringBindings>::new())
-        .with_base_bundle(UiBundle::<StringBindings>::new())
+        .with_base_bundle(InputBundle::new())
+        .with_base_bundle(UiBundle::new())
         .with_base_bundle(
             RenderingBundle::<DefaultBackend>::new()
                 .with_plugin(
-                    RenderToWindow::from_config_path(display_config_path)?
-                        .with_clear([0.0, 0.0, 0.0, 1.0]),
+                    RenderToWindow::from_config_path(display_config_path)?.with_clear(ClearColor {
+                        float32: [0.0, 0.0, 0.0, 1.0],
+                    }),
                 )
                 .with_plugin(RenderShaded3D::default())
                 .with_plugin(RenderUi::default()),
         );
 
-    let mut game = Application::build(assets_dir, Loading::default())?.build(game_data)?;
+    let game = Application::build(assets_dir, Loading::default())?.build(game_data)?;
     game.run();
 
     Ok(())

@@ -8,19 +8,17 @@ Let's get started by creating an `audio` subdirectory under `assets`. Then downl
 
 Next, we'll create a Resource to store our sound effects in. In `main.rs`, add:
 
-```rust,ignore
+```rust
 mod audio;
 ```
 
 Create a file called `audio.rs`:
 
-```rust,edition2018,no_run,noplaypen
-# extern crate amethyst;
-#
+```rust
 use amethyst::{
     assets::Loader,
     audio::{OggFormat, SourceHandle},
-    ecs::{World, WorldExt},
+    ecs::World,
 };
 
 const BOUNCE_SOUND: &str = "audio/bounce.ogg";
@@ -33,15 +31,15 @@ pub struct Sounds {
 
 /// Loads an ogg audio track.
 fn load_audio_track(loader: &Loader, world: &World, file: &str) -> SourceHandle {
-    loader.load(file, OggFormat, (), &world.read_resource())
+    loader.load(file)
 }
 
-/// Initialise audio in the world. This will eventually include
+/// initialize audio in the world. This will eventually include
 /// the background tracks as well as the sound effects, but for now
-/// we'll just work on sound effects.
-pub fn initialise_audio(world: &mut World) {
+/// we'll work on sound effects.
+pub fn initialize_audio(world: &mut World) {
     let sound_effects = {
-        let loader = world.read_resource::<Loader>();
+        let loader = resources.get::<DefaultLoader>();
 
         let sound = Sounds {
             bounce_sfx: load_audio_track(&loader, &world, BOUNCE_SOUND),
@@ -59,37 +57,35 @@ pub fn initialise_audio(world: &mut World) {
 
 Then, we'll need to add the Sounds Resource to our World. Update `pong.rs`:
 
-```rust,ignore
-use crate::audio::initialise_audio;
+```rust
+use crate::audio::initialize_audio;
 
 impl SimpleState for Pong {
-    fn on_start(&mut self, data: StateData<'_, GameData<'_, '_>>) {
+    fn on_start(&mut self, data: StateData<'_, GameData>) {
         // --snip--
 
-        initialise_audio(world);
+        initialize_audio(world);
     }
 }
 ```
 
 Finally, we'll need our game to include the Audio Bundle. In `main.rs`:
 
-```rust,edition2018,no_run,noplaypen
-# extern crate amethyst;
-#
-# use amethyst::GameDataBuilder;
+```rust
+# use amethyst::DispatcherBuilder;
 use amethyst::audio::AudioBundle;
 
 fn main() -> amethyst::Result<()> {
     // --snip--
 
-    let game_data = GameDataBuilder::default()
-        // ... other bundles
-        .with_bundle(AudioBundle::default())?
-        // ... systems
-    ;
+    let game_data = DispatcherBuilder::default()
+// ... other bundles
+.add_bundle(AudioBundle::default())?
+// ... systems
+;
 
     // --snip--
-# Ok(())
+#   Ok(())
 }
 ```
 
@@ -97,19 +93,16 @@ fn main() -> amethyst::Result<()> {
 
 Let's start by creating a function to play the bounce sound. In `audio.rs`, add:
 
-```rust,edition2018,no_run,noplaypen
-# extern crate amethyst;
-#
+```rust
 use amethyst::{
     assets::AssetStorage,
     audio::{output::Output, Source, SourceHandle},
 };
-#
 # pub struct Sounds {
-#     pub score_sfx: SourceHandle,
-#     pub bounce_sfx: SourceHandle,
+#   pub score_sfx: SourceHandle,
+#   pub bounce_sfx: SourceHandle,
 # }
-#
+# 
 pub fn play_bounce_sound(sounds: &Sounds, storage: &AssetStorage<Source>, output: Option<&Output>) {
     if let Some(ref output) = output.as_ref() {
         if let Some(sound) = storage.get(&sounds.bounce_sfx) {
@@ -121,24 +114,22 @@ pub fn play_bounce_sound(sounds: &Sounds, storage: &AssetStorage<Source>, output
 
 Then, we'll update the Bounce System to play the sound whenever the ball bounces. Update `systems/bounce.rs`:
 
-```rust,ignore
-
+```rust
 use amethyst::{
     assets::AssetStorage,
     audio::{output::Output, Source},
-    ecs::{Read, ReadExpect},
 };
 
 use crate::audio::{play_bounce_sound, Sounds};
 
-impl<'s> System<'s> for BounceSystem {
+impl System for BounceSystem {
     type SystemData = (
-        WriteStorage<'s, Ball>,
-        ReadStorage<'s, Paddle>,
-        ReadStorage<'s, Transform>,
-        Read<'s, AssetStorage<Source>>,
+        .write_component::<Ball>()
+      .read_component::<Paddle>(),
+      .read_component::<Transform>(),
+        .read_resource::<AssetStorage<Source>>(),
         ReadExpect<'s, Sounds>,
-        Option<Read<'s, Output>>,
+        Option<.read_resource::<Output>>(),
     );
 
     fn run(
@@ -161,8 +152,8 @@ impl<'s> System<'s> for BounceSystem {
                 // --snip--
 
                 if point_in_rect(
-                    // --snip--
-                ) {
+// --snip--
+) {
                     if (paddle.side == Side::Left && ball.velocity[0] < 0.0)
                         || (paddle.side == Side::Right && ball.velocity[0] > 0.0)
                     {
@@ -182,19 +173,17 @@ Now try running your game (`cargo run`). Don't forget to turn up your volume!
 
 Just as we did for the bounce sound, let's create a function to play the score sound. Update `audio.rs`:
 
-```rust,edition2018,no_run,noplaypen
-# extern crate amethyst;
-#
+```rust
 # use amethyst::{
-#     audio::{output::Output, Source, SourceHandle},
-#     assets::AssetStorage,
+#   assets::AssetStorage,
+#   audio::{output::Output, Source, SourceHandle},
 # };
-#
+# 
 # pub struct Sounds {
-#     pub score_sfx: SourceHandle,
-#     pub bounce_sfx: SourceHandle,
+#   pub score_sfx: SourceHandle,
+#   pub bounce_sfx: SourceHandle,
 # }
-#
+# 
 pub fn play_score_sound(sounds: &Sounds, storage: &AssetStorage<Source>, output: Option<&Output>) {
     if let Some(ref output) = output.as_ref() {
         if let Some(sound) = storage.get(&sounds.score_sfx) {
@@ -206,37 +195,38 @@ pub fn play_score_sound(sounds: &Sounds, storage: &AssetStorage<Source>, output:
 
 Then, we'll update our Winner System to play the score sound whenever a player scores. Update `systems/winner.rs`:
 
-```rust,ignore
+```rust
+use crate::audio::{play_score_sound, Sounds};
 use amethyst::{
     assets::AssetStorage,
     audio::{output::Output, Source},
-    ecs::Read,
 };
-use crate::audio::{play_score_sound, Sounds};
 
-impl<'s> System<'s> for WinnerSystem {
+impl System for WinnerSystem {
     type SystemData = (
-        WriteStorage<'s, Ball>,
-        WriteStorage<'s, Transform>,
-        WriteStorage<'s, UiText>,
+        .write_component::<Ball>()
+        .write_component::<Transform>()
+        .write_component::<UiText>()
         Write<'s, ScoreBoard>,
         ReadExpect<'s, ScoreText>,
-        Read<'s, AssetStorage<Source>>,
+        .read_resource::<AssetStorage<Source>>(),
         ReadExpect<'s, Sounds>,
-        Option<Read<'s, Output>>,
+        Option<.read_resource::<Output>>(),
     );
 
-
-    fn run(&mut self, (
-        mut balls,
-        mut locals,
-        mut ui_text,
-        mut scores,
-        score_text,
-        storage,
-        sounds,
-        audio_output,
-    ): Self::SystemData)  {
+    fn run(
+        &mut self,
+        (
+mut balls,
+mut locals,
+mut ui_text,
+mut scores,
+score_text,
+storage,
+sounds,
+audio_output,
+): Self::SystemData,
+    ) {
         for (ball, transform) in (&mut balls, &mut locals).join() {
             // --snip--
 
@@ -264,11 +254,11 @@ Next, let's take our game to the next level by adding some background music.
 
 ## Adding background music
 
-Let's start by downloading [Albatross][albatross] and [Where's My Jetpack?][wheres-my-jetpack] Put these files in the `assets/audio` directory.
+Let's start by downloading [Albatross] and [Where's My Jetpack?][wheres-my-jetpack] Put these files in the `assets/audio` directory.
 
 In `audio.rs`, add the paths to the music tracks below the paths to the sound effects:
 
-```rust,edition2018,no_run,noplaypen
+```rust
 const BOUNCE_SOUND: &str = "audio/bounce.ogg";
 const SCORE_SOUND: &str = "audio/score.ogg";
 
@@ -280,11 +270,8 @@ const MUSIC_TRACKS: &[&str] = &[
 
 Then, create a Music Resource:
 
-```rust,edition2018,no_run,noplaypen
-# extern crate amethyst;
-#
+```rust
 use std::{iter::Cycle, vec::IntoIter};
-#
 # use amethyst::audio::SourceHandle;
 
 pub struct Music {
@@ -294,43 +281,40 @@ pub struct Music {
 
 Since we only have two music tracks, we use a `Cycle` to infinitely alternate between the two.
 
-Next, we need to add the Music Resource to our World. Update `initialise_audio`:
+Next, we need to add the Music Resource to our World. Update `initialize_audio`:
 
-```rust,edition2018,no_run,noplaypen
-# extern crate amethyst;
-#
+```rust
 # use std::{iter::Cycle, vec::IntoIter};
-#
+# 
 use amethyst::{
-    audio::{AudioSink, SourceHandle},
     assets::Loader,
-    ecs::{World, WorldExt},
+    audio::{AudioSink, SourceHandle},
+    ecs::World,
 };
-#
 # const BOUNCE_SOUND: &str = "audio/bounce.ogg";
 # const SCORE_SOUND: &str = "audio/score.ogg";
-#
+# 
 # const MUSIC_TRACKS: &[&str] = &[
-#     "audio/Computer_Music_All-Stars_-_Wheres_My_Jetpack.ogg",
-#     "audio/Computer_Music_All-Stars_-_Albatross_v2.ogg",
+#   "audio/Computer_Music_All-Stars_-_Wheres_My_Jetpack.ogg",
+#   "audio/Computer_Music_All-Stars_-_Albatross_v2.ogg",
 # ];
-#
+# 
 # fn load_audio_track(loader: &Loader, world: &World, file: &str) -> SourceHandle {
-#     unimplemented!()
+#   unimplemented!()
 # }
-#
+# 
 # pub struct Music {
-#     pub music: Cycle<IntoIter<SourceHandle>>,
+#   pub music: Cycle<IntoIter<SourceHandle>>,
 # }
-#
+# 
 # pub struct Sounds {
-#     pub score_sfx: SourceHandle,
-#     pub bounce_sfx: SourceHandle,
+#   pub score_sfx: SourceHandle,
+#   pub bounce_sfx: SourceHandle,
 # }
 
-pub fn initialise_audio(world: &mut World) {
+pub fn initialize_audio(world: &mut World) {
     let (sound_effects, music) = {
-        let loader = world.read_resource::<Loader>();
+        let loader = resources.get::<DefaultLoader>();
 
         let mut sink = world.write_resource::<AudioSink>();
         sink.set_volume(0.25); // Music is a bit loud, reduce the volume.
@@ -360,31 +344,31 @@ pub fn initialise_audio(world: &mut World) {
 
 Finally, let's add a DJ System to our game to play the music. In `main.rs`:
 
-```rust,ignore
-use amethyst::audio::DjSystemDesc;
+```rust
 use crate::audio::Music;
+use amethyst::audio::DjSystemDesc;
 
 fn main() -> amethyst::Result<()> {
     // --snip--
 
-    let game_data = GameDataBuilder::default()
-        // ... bundles
-        .with_system_desc(
-            DjSystemDesc::new(|music: &mut Music| music.music.next()),
-            "dj_system",
-            &[],
-        )
-        // ... other systems
-        ;
+    let game_data = DispatcherBuilder::default()
+// ... bundles
+.with_system_desc(
+DjSystemDesc::new(|music: &mut Music| music.music.next()),
+"dj_system",
+&[],
+)
+// ... other systems
+;
 
     // --snip--
-# Ok(())
+#   Ok(())
 }
 ```
 
 Now run your game and enjoy the tunes!
 
+[albatross]: ./audio/Computer_Music_All-Stars_-_Albatross_v2.ogg
 [bounce]: ./audio/bounce.ogg
 [score]: ./audio/score.ogg
-[albatross]: ./audio/Computer_Music_All-Stars_-_Albatross_v2.ogg
 [wheres-my-jetpack]: ./audio/Computer_Music_All-Stars_-_Wheres_My_Jetpack.ogg

@@ -2,10 +2,9 @@ use std::marker::PhantomData;
 
 use amethyst::{
     core::{bundle::SystemBundle, SystemDesc},
-    ecs::prelude::*,
+    ecs::*,
     error::Error,
 };
-
 use derive_new::new;
 
 /// Adds a specified `System` to the dispatcher.

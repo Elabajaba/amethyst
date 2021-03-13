@@ -1,6 +1,6 @@
 #![allow(clippy::default_trait_access)]
 //! GPU POD data types.
-use amethyst_assets::{AssetStorage, Handle};
+
 use amethyst_core::math::Point3;
 use amethyst_rendy::{
     pod::IntoPod,
@@ -9,13 +9,12 @@ use amethyst_rendy::{
         mesh::{AsVertex, VertexFormat},
     },
     resources::Tint as TintComponent,
-    sprite::SpriteSheet,
-    Texture,
+    Sprite,
 };
-use glsl_layout::{mat4, uvec3, vec2, vec4, AsStd140};
+use glsl_layout::{mat4, uvec3, vec2, vec4, Uniform};
 
 /// `TileMapArgs`
-/// ```glsl,ignore
+/// ```glsl
 /// uniform TileMapArgs {
 ///    uniform mat4 proj;
 ///    uniform mat4 view;
@@ -23,7 +22,7 @@ use glsl_layout::{mat4, uvec3, vec2, vec4, AsStd140};
 ///    uniform mat4 map_transform;
 /// };
 /// ```
-#[derive(Clone, Copy, Debug, AsStd140)]
+#[derive(Clone, Copy, Debug, Uniform)]
 #[repr(C, align(16))]
 pub struct TileMapArgs {
     /// Projection matrix
@@ -39,7 +38,7 @@ pub struct TileMapArgs {
 }
 
 /// Tile Vertex Data
-/// ```glsl,ignore
+/// ```glsl
 /// vec2 dir_x;
 /// vec2 dir_y;
 /// vec2 pos;
@@ -48,7 +47,7 @@ pub struct TileMapArgs {
 /// float depth;
 /// vec4 tint;
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, AsStd140)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Uniform)]
 #[repr(C, align(4))]
 pub struct TileArgs {
     /// Upper-left coordinate of the sprite in the spritesheet
@@ -78,32 +77,23 @@ impl TileArgs {
     /// Extracts POD vertex data from the provided storages for a tile.
     ///
     /// # Arguments
-    /// * `tex_storage` - `Texture` Storage
-    /// * `sprite_sheet` - `SpriteSheet` Storage
     /// * `sprite_number` - The number index of the sprite in the sprite sheet.
     /// * `tint` - An optional `TintComponent` reference for tinting this tile, if applicable.
     /// * `tile_coordinate` - The  Point3<u32> position of this tile (in Tile Coordinate Space)
+    #[must_use]
     pub fn from_data<'a>(
-        tex_storage: &AssetStorage<Texture>,
-        sprite_sheet: &'a SpriteSheet,
+        sprites: &'a [Sprite],
         sprite_number: usize,
         tint: Option<&TintComponent>,
         tile_coordinate: &Point3<u32>,
-    ) -> Option<(Self, &'a Handle<Texture>)> {
-        if !tex_storage.contains(&sprite_sheet.texture) {
-            return None;
+    ) -> Self {
+        let sprite = &sprites[sprite_number];
+
+        Self {
+            u_offset: [sprite.tex_coords.left, sprite.tex_coords.right].into(),
+            v_offset: [sprite.tex_coords.top, sprite.tex_coords.bottom].into(),
+            tint: tint.map_or([1.0; 4].into(), |t| t.0.into_pod()),
+            tile_coordinate: [tile_coordinate.x, tile_coordinate.y, tile_coordinate.z].into(),
         }
-
-        let sprite = &sprite_sheet.sprites[sprite_number];
-
-        Some((
-            Self {
-                u_offset: [sprite.tex_coords.left, sprite.tex_coords.right].into(),
-                v_offset: [sprite.tex_coords.top, sprite.tex_coords.bottom].into(),
-                tint: tint.map_or([1.0; 4].into(), |t| t.0.into_pod()),
-                tile_coordinate: [tile_coordinate.x, tile_coordinate.y, tile_coordinate.z].into(),
-            },
-            &sprite_sheet.texture,
-        ))
     }
 }

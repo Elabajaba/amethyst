@@ -3,185 +3,204 @@
 This guide explains how to define a new asset format. This will allow Amethyst to load assets stored in a particular encoding.
 
 There is a trait in Amethyst for implementing a format: `Format<A: Asset::Data>`.
-`Format` provides a loading implementation that provides detection when an asset should be reloaded for [hot reloading][doc_hrs]; you don't need to implement it since it has a default implementation.
-A blanket implementation will implement `Format::import` and we only need to implement 
-`Format::import_simple`.
+A blanket implementation will implement `Format::import` and we only need to implement `Format::import_simple`.
 
-`Format` takes a type parameter for the asset data type it supports. This guide covers a type 
-parameterized implementation of `Format<D>` where `D` is an arbitrary `Asset::Data`, so we can
-reuse it for any asset which can be loaded from deserializable asset data.
+`Format` takes a type parameter for the asset data type it supports.
 
 If you are defining a new format that may be useful to others, [please send us a PR!][gh_contributing]
 
 1. Define a struct that represents the format.
 
-    In most cases a unit struct is sufficient. When possible, this should implement `Clone` and `Copy` for ergonomic usage.
+   In most cases a unit struct is sufficient. This must implement `Default`, `Clone` and `Copy` for ergonomic usage.  It also must
+   derive `Serialize`, `Deserialize` and `TypeUuid` for use in prefabs.
 
-    ```rust,edition2018,no_run,noplaypen
-    /// Format for loading from `.mylang` files.
-    #[derive(Clone, Copy, Debug, Default)]
-    pub struct MyLangFormat;
-    ```
+   ```rust
+   use serde::{Deserialize, Serialize};
+   use type_uuid::TypeUuid;
 
-2. Implement the `Format` trait.
+   /// Format for loading from `.mylang` files.
+   #[derive(Default, Clone, Copy, Serialize, Deserialize, TypeUuid)]
+   #[uuid = "00000000-0000-0000-0000-000000000002"] // replace with your own uuid
+   pub struct MyLangFormat;
+   ```
 
-    This is where the logic to deserialize the [asset data type][bk_custom_assets] is provided. 
-    Fields of the format struct can be used to specify additional parameters for 
-    deserialization; use a unit struct if this is not needed.
+1. Implement the `Format` trait.
 
-    In this example the RON deserializer is used, though it is [already a supported format][doc_ron_format].
+   This is where the logic to deserialize the [asset data type][bk_custom_assets] is provided.
+   Fields of the format struct can be used to specify additional parameters for
+   deserialization; use a unit struct if this is not needed.
 
-    ```rust,edition2018,no_run,noplaypen
-    # extern crate amethyst;
-    # extern crate ron;
-    # extern crate serde;
-    #
-    use amethyst::{
-        error::Error,
-        assets::{Asset, Format},
-    };
-    use serde::Deserialize;
-    use ron::de::Deserializer; // Replace this in your implementation.
+   In this example the RON deserializer is used, though it is [already a supported format][doc_ron_format].
 
-    /// Format for loading from `.mylang` files.
-    #[derive(Clone, Copy, Debug, Default)]
-    pub struct MyLangFormat;
+   ```rust
+   # use amethyst::assets::{Asset, Handle};
+   # use serde::{Deserialize, Serialize};
+   # use type_uuid::TypeUuid;
+   # 
+   # /// Custom asset representing an energy blast.
+   # #[derive(Clone, Debug, Default, Serialize, Deserialize, TypeUuid)]
+   # #[uuid = "00000000-0000-0000-0000-000000000001"]
+   # pub struct EnergyBlast {
+   #   pub hp_damage: u32,
+   #   pub mp_damage: u32,
+   # }
+   # 
+   # /// Separate serializable type to support different versions
+   # /// of energy blast configuration.
+   # #[derive(Clone, Debug, Deserialize, Serialize)]
+   # pub enum EnergyBlastData {
+   #   /// Early version only could damage HP.
+   #   Version1 { hp_damage: u32 },
+   #   /// Add support for subtracting MP.
+   #   Version2 { hp_damage: u32, mp_damage: u32 },
+   # }
+   # 
+   # impl Asset for EnergyBlast {
+   #   // use `Self` if the type is directly serialized.
+   #   type Data = EnergyBlastData;
+   # 
+   #   fn name() -> &'static str {
+   #       "EnergyBlast"
+   #   }
+   # }
+   # 
+   # use amethyst::assets::{AssetStorage, LoadHandle, ProcessableAsset, ProcessingState};
+   # 
+   # impl ProcessableAsset for EnergyBlast {
+   #   fn process(
+   #       energy_blast_data: Self::Data,
+   #       _storage: &mut AssetStorage<Self>,
+   #       _handle: &LoadHandle,
+   #   ) -> amethyst::Result<ProcessingState<Self::Data, Self>> {
+   #       match energy_blast_data {
+   #           EnergyBlastData::Version1 { hp_damage } => Ok(ProcessingState::Loaded(Self {
+   #               hp_damage,
+   #               ..Default::default()
+   #           })),
+   #           EnergyBlastData::Version2 {
+   #               hp_damage,
+   #               mp_damage,
+   #           } => Ok(ProcessingState::Loaded(Self {
+   #               hp_damage,
+   #               mp_damage,
+   #           })),
+   #       }
+   #   }
+   # }
+   # 
+   # /// Format for loading from `.mylang` files.
+   # #[derive(Default, Clone, Copy, Serialize, Deserialize, TypeUuid)]
+   # #[uuid = "00000000-0000-0000-0000-000000000002"] // replace with your own uuid
+   # pub struct MyLangFormat;
 
-    impl<D> Format<D> for MyLangFormat
-    where
-        D: for<'a> Deserialize<'a> + Send + Sync + 'static,
-    {
-        fn name(&self) -> &'static str {
-            "MyLangFormat"
-        }
+   use amethyst::assets::Format;
+   use ron::de::Deserializer; // replace this with your formats deserializer
 
-        fn import_simple(&self, bytes: Vec<u8>) -> Result<D, Error> {
-            let mut deserializer = Deserializer::from_bytes(&bytes)?;
-            let val = D::deserialize(&mut deserializer)?;
-            deserializer.end()?;
+   // EnergyBlast could be EnergyBlastData here.
+   impl Format<EnergyBlast> for MyLangFormat {
+       fn name(&self) -> &'static str {
+           "MyLangFormat"
+       }
 
-            Ok(val)
-        }
-    }
-    ```
+       fn import_simple(&self, bytes: Vec<u8>) -> amethyst::Result<EnergyBlast> {
+           let mut deserializer = Deserializer::from_bytes(&bytes)?;
+           let val = EnergyBlast::deserialize(&mut deserializer)?;
+           deserializer.end()?;
 
-    The custom format can now be used:
+           Ok(val)
+       }
+   }
 
-    ```rust,edition2018,no_run,noplaypen
-    # extern crate amethyst;
-    # extern crate ron;
-    # extern crate serde;
-    # extern crate serde_derive;
-    #
-    # use amethyst::{
-    #     error::Error,
-    #     assets::{
-    #         Asset, AssetStorage, Handle, Loader, Processor, ProgressCounter,
-    #         ProcessingState, Format,
-    #     },
-    #     ecs::{VecStorage, World, WorldExt},
-    #     prelude::*,
-    #     utils::application_root_dir,
-    # };
-    # use ron::de::Deserializer;
-    # use serde::Deserialize as DeserializeTrait;
-    # use serde_derive::{Deserialize, Serialize};
-    #
-    # /// Custom asset representing an energy blast.
-    # #[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
-    # pub struct EnergyBlast {
-    #     /// How much HP to subtract.
-    #     pub hp_damage: u32,
-    #     /// How much MP to subtract.
-    #     pub mp_damage: u32,
-    # }
-    #
-    # /// A handle to a `EnergyBlast` asset.
-    # pub type EnergyBlastHandle = Handle<EnergyBlast>;
-    #
-    # impl Asset for EnergyBlast {
-    #     const NAME: &'static str = "my_crate::EnergyBlast";
-    #     type Data = Self;
-    #     type HandleStorage = VecStorage<EnergyBlastHandle>;
-    # }
-    #
-    # impl From<EnergyBlast> for Result<ProcessingState<EnergyBlast>, Error> {
-    #     fn from(energy_blast: EnergyBlast) -> Result<ProcessingState<EnergyBlast>, Error> {
-    #       Ok(ProcessingState::Loaded(energy_blast))
-    #     }
-    # }
-    #
-    # pub struct LoadingState {
-    #     /// Tracks loaded assets.
-    #     progress_counter: ProgressCounter,
-    #     /// Handle to the energy blast.
-    #     energy_blast_handle: Option<EnergyBlastHandle>,
-    # }
-    #
-    # /// Format for loading from `.mylang` files.
-    #  #[derive(Clone, Copy, Debug, Default)]
-    #  pub struct MyLangFormat;
-    #
-    #  impl<D> Format<D> for MyLangFormat
-    #  where
-    #      D: for<'a> DeserializeTrait<'a> + Send + Sync + 'static,
-    #  {
-    #      fn name(&self) -> &'static str {
-    #          "MyLangFormat"
-    #      }
-    #
-    #      fn import_simple(&self, bytes: Vec<u8>) -> Result<D, Error> {
-    #          let mut deserializer = Deserializer::from_bytes(&bytes)?;
-    #          let val = D::deserialize(&mut deserializer)?;
-    #          deserializer.end()?;
-    #
-    #          Ok(val)
-    #      }
-    #  }
-    #
-    impl SimpleState for LoadingState {
-        fn on_start(&mut self, data: StateData<'_, GameData<'_, '_>>) {
-            let loader = &data.world.read_resource::<Loader>();
-            let energy_blast_handle = loader.load(
-                "energy_blast.mylang",
-                MyLangFormat,
-                &mut self.progress_counter,
-                &data.world.read_resource::<AssetStorage<EnergyBlast>>(),
-            );
+   use amethyst::assets as amethyst_assets;
+   amethyst::assets::register_importer!(".mylang", MyLangFormat);
+   ```
 
-            self.energy_blast_handle = Some(energy_blast_handle);
-        }
-    #
-    #     fn update(
-    #         &mut self,
-    #         _data: &mut StateData<'_, GameData<'_, '_>>,
-    #     ) -> SimpleTrans {
-    #         Trans::Quit
-    #     }
-    }
-    #
-    # fn main() -> amethyst::Result<()> {
-    #     amethyst::start_logger(Default::default());
-    #     let app_root = application_root_dir()?;
-    #     let assets_dir = app_root.join("assets");
-    #
-    #     let game_data = GameDataBuilder::default()
-    #         .with(Processor::<EnergyBlast>::new(), "", &[]);
-    #     let mut game = Application::new(
-    #         assets_dir,
-    #         LoadingState {
-    #             progress_counter: ProgressCounter::new(),
-    #             energy_blast_handle: None,
-    #         },
-    #         game_data,
-    #     )?;
-    #
-    #     game.run();
-    #     Ok(())
-    # }
-    ```
+   The custom format can now be used:
+
+   ```rust
+   # use amethyst::assets::{Asset, AssetStorage, Format, Handle, ProcessingState, ProgressCounter};
+   # use ron::de::Deserializer;
+   # use serde::{Deserialize, Serialize};
+   # use type_uuid::TypeUuid;
+   # /// Custom asset representing an energy blast.
+   # #[derive(Clone, Debug, Default, Serialize, Deserialize, TypeUuid)]
+   # #[uuid = "00000000-0000-0000-0000-000000000001"]
+   # pub struct EnergyBlast {
+   #   /// How much HP to subtract.
+   #   pub hp_damage: u32,
+   #   /// How much MP to subtract.
+   #   pub mp_damage: u32,
+   # }
+   # 
+   # impl Asset for EnergyBlast {
+   #   type Data = Self;
+   # 
+   #   fn name() -> &'static str {
+   #       "EnergyBlast"
+   #   }
+   # }
+   # 
+   # pub struct LoadingState {
+   #   /// Handle to the energy blast.
+   #   energy_blast_handle: Option<Handle<EnergyBlast>>,
+   # }
+   # 
+   # /// Format for loading from `.mylang` files.
+   # #[derive(Default, Debug, Clone, Serialize, Deserialize, TypeUuid)]
+   # #[uuid = "00000000-0000-0000-0000-000000000002"] // replace with your own uuid
+   # pub struct MyLangFormat;
+   # 
+   # impl Format<EnergyBlast> for MyLangFormat {
+   #   fn name(&self) -> &'static str {
+   #       "MyLangFormat"
+   #   }
+   # 
+   #   fn import_simple(&self, bytes: Vec<u8>) -> amethyst::Result<EnergyBlast> {
+   #       let mut deserializer = Deserializer::from_bytes(&bytes)?;
+   #       let val = EnergyBlast::deserialize(&mut deserializer)?;
+   #       deserializer.end()?;
+   # 
+   #       Ok(val)
+   #   }
+   # }
+   # 
+
+   use amethyst::assets::{DefaultLoader, Loader, LoaderBundle};
+   use amethyst::{
+       ecs::DispatcherBuilder, utils::application_root_dir, Application, GameData, SimpleState,
+       SimpleTrans, StateData, Trans,
+   };
+
+   impl SimpleState for LoadingState {
+       fn on_start(&mut self, data: StateData<'_, GameData>) {
+           let loader = data.resources.get::<DefaultLoader>().unwrap();
+           let energy_blast_handle = loader.load("energy_blast.mylang");
+
+           self.energy_blast_handle = Some(energy_blast_handle);
+       }
+   }
+
+   fn main() -> amethyst::Result<()> {
+       amethyst::start_logger(Default::default());
+       let app_root = application_root_dir()?;
+       let assets_dir = app_root.join("assets");
+
+       let mut game_data = DispatcherBuilder::default();
+       game_data.add_bundle(LoaderBundle);
+
+       let mut game = Application::new(
+           assets_dir,
+           LoadingState {
+               energy_blast_handle: None,
+           },
+           game_data,
+       )?;
+
+       //game.run();
+       Ok(())
+   }
+   ```
 
 [bk_custom_assets]: how_to_define_custom_assets.html
-[doc_hrs]: https://docs.amethyst.rs/master/amethyst_assets/struct.HotReloadStrategy.html
 [doc_ron_format]: https://docs.amethyst.rs/stable/amethyst_assets/struct.RonFormat.html
 [gh_contributing]: https://github.com/amethyst/amethyst/blob/master/docs/CONTRIBUTING.md

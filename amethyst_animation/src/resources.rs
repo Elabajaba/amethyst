@@ -1,19 +1,26 @@
 use std::{cmp::Ordering, fmt::Debug, hash::Hash, marker, time::Duration};
 
+use amethyst_assets::{
+    erased_serde::private::serde::{de, de::SeqAccess, ser::SerializeSeq},
+    prefab::{
+        register_component_type,
+        serde_diff::{ApplyContext, DiffContext},
+        SerdeDiff,
+    },
+    Asset, AssetStorage, Handle,
+};
+use amethyst_core::{
+    ecs::*,
+    timing::{duration_to_secs, secs_to_duration},
+    Transform,
+};
 use derivative::Derivative;
 use fnv::FnvHashMap;
-use log::error;
+use log::debug;
 use minterpolate::{get_input_index, InterpolationFunction, InterpolationPrimitive};
 use serde::{Deserialize, Serialize};
-
-use amethyst_assets::{Asset, AssetStorage, Handle, PrefabData};
-use amethyst_core::{
-    ecs::prelude::{Component, DenseVecStorage, Entity, VecStorage, WriteStorage},
-    shred::SystemData,
-    timing::{duration_to_secs, secs_to_duration},
-};
-use amethyst_derive::PrefabData;
-use amethyst_error::Error;
+use type_uuid::TypeUuid;
+use uuid::Uuid;
 
 /// Blend method for sampler blending
 #[derive(Clone, Copy, Debug, PartialOrd, PartialEq, Eq, Hash)]
@@ -22,14 +29,8 @@ pub enum BlendMethod {
     Linear,
 }
 
-/// Extra data to extract from `World`, for use when applying or fetching a sample
-pub trait ApplyData<'a> {
-    /// The actual data, must implement `SystemData`
-    type ApplyData: SystemData<'a>;
-}
-
 /// Master trait used to define animation sampling on a component
-pub trait AnimationSampling: Send + Sync + 'static + for<'b> ApplyData<'b> {
+pub trait AnimationSampling: Send + Sync + 'static {
     /// The interpolation primitive
     type Primitive: InterpolationPrimitive + Debug + Clone + Send + Sync + 'static;
     /// An independent grouping or type of functions that operate on attributes of a component
@@ -39,19 +40,15 @@ pub trait AnimationSampling: Send + Sync + 'static + for<'b> ApplyData<'b> {
     type Channel: Debug + Clone + Hash + Eq + Send + Sync + 'static;
 
     /// Apply a sample to a channel
-    fn apply_sample<'a>(
+    fn apply_sample(
         &mut self,
         channel: &Self::Channel,
         data: &Self::Primitive,
-        extra: &<Self as ApplyData<'a>>::ApplyData,
+        buffer: &mut CommandBuffer,
     );
 
     /// Get the current sample for a channel
-    fn current_sample<'a>(
-        &self,
-        channel: &Self::Channel,
-        extra: &<Self as ApplyData<'a>>::ApplyData,
-    ) -> Self::Primitive;
+    fn current_sample(&self, channel: &Self::Channel) -> Self::Primitive;
 
     /// Get default primitive
     fn default_primitive(channel: &Self::Channel) -> Self::Primitive;
@@ -97,14 +94,14 @@ impl<T> Asset for Sampler<T>
 where
     T: InterpolationPrimitive + Send + Sync + 'static,
 {
-    const NAME: &'static str = "animation::Sampler";
+    fn name() -> &'static str {
+        "animation::Sampler"
+    }
     type Data = Self;
-    type HandleStorage = VecStorage<Handle<Self>>;
 }
 
 /// Define the rest state for a component on an entity
-#[derive(Debug, Clone, Deserialize, Serialize, PrefabData)]
-#[prefab(Component)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct RestState<T>
 where
     T: AnimationSampling + Clone,
@@ -127,17 +124,10 @@ where
     }
 }
 
-impl<T> Component for RestState<T>
-where
-    T: AnimationSampling + Clone,
-{
-    type Storage = DenseVecStorage<Self>;
-}
-
 /// Defines the hierarchy of nodes that a single animation can control.
 /// Attached to the root entity that an animation can be defined for.
 /// Only required for animations which target more than a single node or entity.
-#[derive(Derivative, Debug, Clone)]
+#[derive(Derivative, Debug, Clone, Serialize, Deserialize)]
 #[derivative(Default(bound = ""))]
 pub struct AnimationHierarchy<T> {
     /// A mapping between indices and entities
@@ -180,19 +170,15 @@ where
 
     /// Create rest state for the hierarchy. Will copy the values from the base components for each
     /// entity in the hierarchy.
-    pub fn rest_state<F>(&self, get_component: F, states: &mut WriteStorage<'_, RestState<T>>)
+    pub fn rest_state(&self, world: &SubWorld<'_>, buffer: &mut CommandBuffer)
     where
         T: AnimationSampling + Clone,
-        F: Fn(Entity) -> Option<T>,
     {
         for entity in self.nodes.values() {
-            if !states.contains(*entity) {
-                if let Some(comp) = get_component(*entity) {
-                    if let Err(err) = states.insert(*entity, RestState::new(comp)) {
-                        error!(
-                            "Failed creating rest state for AnimationHierarchy, because of: {}",
-                            err
-                        );
+            if let Ok(entry) = world.entry_ref(*entity) {
+                if entry.get_component::<RestState<T>>().is_err() {
+                    if let Some(comp) = entry.get_component::<T>().ok().cloned() {
+                        buffer.add_component(*entity, RestState::new(comp));
                     }
                 }
             }
@@ -200,12 +186,34 @@ where
     }
 }
 
-impl<T> Component for AnimationHierarchy<T>
-where
-    T: AnimationSampling,
-{
-    type Storage = DenseVecStorage<Self>;
+// d8d687ef-da49-a839-5066-c0d703b99bdc
+impl TypeUuid for AnimationSet<usize, Transform> {
+    const UUID: type_uuid::Bytes =
+        *Uuid::from_u128(288227155745652393685123926184903154652).as_bytes();
 }
+
+impl SerdeDiff for AnimationSet<usize, Transform> {
+    fn diff<'a, S: SerializeSeq>(
+        &self,
+        _ctx: &mut DiffContext<'a, S>,
+        _other: &Self,
+    ) -> Result<bool, <S as SerializeSeq>::Error> {
+        unimplemented!()
+    }
+
+    fn apply<'de, A>(
+        &mut self,
+        _seq: &mut A,
+        _ctx: &mut ApplyContext,
+    ) -> Result<bool, <A as SeqAccess<'de>>::Error>
+    where
+        A: de::SeqAccess<'de>,
+    {
+        unimplemented!()
+    }
+}
+
+register_component_type!(AnimationHierarchy<Transform>);
 
 /// Defines a single animation.
 ///
@@ -219,7 +227,11 @@ where
 /// - `T`: the component type that the animation should be applied to
 ///
 /// [sampler]: struct.Sampler.html
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(bound(
+    serialize = "T::Channel: Serialize, T::Primitive: Serialize",
+    deserialize = "T::Channel: Deserialize<'de>, T::Primitive: Deserialize<'de>",
+))]
 pub struct Animation<T>
 where
     T: AnimationSampling,
@@ -274,9 +286,10 @@ impl<T> Asset for Animation<T>
 where
     T: AnimationSampling,
 {
-    const NAME: &'static str = "animation::Animation";
+    fn name() -> &'static str {
+        "animation::Animation"
+    }
     type Data = Self;
-    type HandleStorage = VecStorage<Handle<Self>>;
 }
 
 /// State of animation
@@ -299,18 +312,12 @@ pub enum ControlState {
 impl ControlState {
     /// Is the state `Running`
     pub fn is_running(&self) -> bool {
-        match *self {
-            ControlState::Running(_) => true,
-            _ => false,
-        }
+        matches!(*self, ControlState::Running(_))
     }
 
     /// Is the state `Paused`
     pub fn is_paused(&self) -> bool {
-        match *self {
-            ControlState::Paused(_) => true,
-            _ => false,
-        }
+        matches!(*self, ControlState::Paused(_))
     }
 }
 
@@ -554,13 +561,6 @@ fn set_step_state<T>(
     }
 }
 
-impl<T> Component for SamplerControlSet<T>
-where
-    T: AnimationSampling,
-{
-    type Storage = DenseVecStorage<Self>;
-}
-
 /// Used when doing animation stepping (i.e only move forward/backward to discrete input values)
 #[derive(Clone, Debug)]
 pub enum StepDirection {
@@ -592,7 +592,7 @@ where
     Pause,
     /// Abort the animation, will cause the control object to be removed from the world
     Abort,
-    /// Only initialise the animation without starting it
+    /// Only initialize the animation without starting it
     Init,
 }
 
@@ -608,7 +608,7 @@ where
 {
     /// Animation handle
     pub animation: Handle<Animation<T>>,
-    /// Id, a value of zero means this has not been initialised yet
+    /// Id, a value of zero means this has not been initialized yet
     /// (this is done by the control system)
     pub id: u64,
     /// What to do when animation ends
@@ -644,13 +644,6 @@ where
             m: marker::PhantomData,
         }
     }
-}
-
-impl<T> Component for AnimationControl<T>
-where
-    T: AnimationSampling,
-{
-    type Storage = DenseVecStorage<Self>;
 }
 
 /// Defer the start of an animation until the relationship has done this
@@ -707,7 +700,7 @@ where
 
 impl<I, T> AnimationControlSet<I, T>
 where
-    I: PartialEq,
+    I: PartialEq + Debug,
     T: AnimationSampling,
 {
     /// Is the animation set empty?
@@ -809,6 +802,7 @@ where
         command: AnimationCommand<T>,
     ) -> &mut Self {
         if !self.animations.iter().any(|a| a.0 == id) {
+            debug!("Adding animation {:?}", id);
             self.animations.push((
                 id,
                 AnimationControl::new(
@@ -864,21 +858,13 @@ where
     }
 }
 
-impl<I, T> Component for AnimationControlSet<I, T>
-where
-    I: Send + Sync + 'static,
-    T: AnimationSampling,
-{
-    type Storage = DenseVecStorage<Self>;
-}
-
 /// Attaches to an entity that have animations, with links to all animations that can be run on the
 /// entity. Is not used directly by the animation systems, provided for convenience.
 ///
 /// ### Type parameters:
 ///
 /// - `T`: the component type that the animation should be applied to
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AnimationSet<I, T>
 where
     I: Eq + Hash,
@@ -924,10 +910,31 @@ where
     }
 }
 
-impl<I, T> Component for AnimationSet<I, T>
-where
-    I: Eq + Hash + Send + Sync + 'static,
-    T: AnimationSampling,
-{
-    type Storage = DenseVecStorage<Self>;
+register_component_type!(AnimationSet<usize, Transform>);
+
+// d8160db6-6dc5-49fd-4c08-8b81739b175c
+impl TypeUuid for AnimationHierarchy<Transform> {
+    const UUID: type_uuid::Bytes =
+        *Uuid::from_u128(287227755745252393685123926184901154652).as_bytes();
+}
+
+impl SerdeDiff for AnimationHierarchy<Transform> {
+    fn diff<'a, S: SerializeSeq>(
+        &self,
+        _ctx: &mut DiffContext<'a, S>,
+        _other: &Self,
+    ) -> Result<bool, <S as SerializeSeq>::Error> {
+        unimplemented!()
+    }
+
+    fn apply<'de, A>(
+        &mut self,
+        _seq: &mut A,
+        _ctx: &mut ApplyContext,
+    ) -> Result<bool, <A as SeqAccess<'de>>::Error>
+    where
+        A: de::SeqAccess<'de>,
+    {
+        unimplemented!()
+    }
 }

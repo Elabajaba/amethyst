@@ -13,6 +13,11 @@
 #![warn(clippy::all)]
 #![allow(clippy::new_without_default)]
 
+use std::{
+    error::Error,
+    fmt::{Display, Formatter, Result as FmtResult},
+};
+
 pub use self::{
     bundle::AudioBundle,
     components::*,
@@ -20,11 +25,6 @@ pub use self::{
     sink::AudioSink,
     source::{Source, SourceHandle},
     systems::*,
-};
-
-use std::{
-    error::Error,
-    fmt::{Display, Formatter, Result as FmtResult},
 };
 
 pub mod output;
@@ -54,5 +54,11 @@ impl Error for DecoderError {
 
     fn cause(&self) -> Option<&dyn Error> {
         None
+    }
+}
+
+impl From<rodio::decoder::DecoderError> for DecoderError {
+    fn from(_: rodio::decoder::DecoderError) -> Self {
+        DecoderError
     }
 }

@@ -1,19 +1,19 @@
 //! An example showing how to create a dispatcher inside of a State.
 
+use std::marker::PhantomData;
+
 use amethyst::{
-    ecs::{Dispatcher, DispatcherBuilder, WorldExt},
+    ecs::{Dispatcher, DispatcherBuilder},
     prelude::*,
     shrev::EventChannel,
     utils::application_root_dir,
     Error,
 };
 
-use std::marker::PhantomData;
-
 struct StateA;
 
 impl SimpleState for StateA {
-    fn update(&mut self, data: &mut StateData<'_, GameData<'_, '_>>) -> SimpleTrans {
+    fn update(&mut self, data: &mut StateData<'_, GameData>) -> SimpleTrans {
         println!("StateA::update()");
         // Shows how to push a `Trans` through the event queue.
         // If you do use TransQueue, you will be forced to use the 'static lifetime on your states.
@@ -31,7 +31,7 @@ impl SimpleState for StateA {
 
 /// StateB isn't Send + Sync
 struct StateB<'a> {
-    dispatcher: Dispatcher<'static, 'static>,
+    dispatcher: Dispatcher,
     _phantom: &'a PhantomData<()>,
 }
 
@@ -45,7 +45,7 @@ impl<'a> Default for StateB<'a> {
 }
 
 impl<'a> SimpleState for StateB<'a> {
-    fn update(&mut self, data: &mut StateData<'_, GameData<'_, '_>>) -> SimpleTrans {
+    fn update(&mut self, data: &mut StateData<'_, GameData>) -> SimpleTrans {
         println!("StateB::update()");
         self.dispatcher.dispatch(&data.world);
         Trans::Quit
@@ -55,8 +55,8 @@ impl<'a> SimpleState for StateB<'a> {
 fn main() -> Result<(), Error> {
     amethyst::start_logger(Default::default());
     let app_root = application_root_dir()?;
-    let assets_dir = app_root.join("examples/state_dispatcher/assets");
-    let mut game = Application::build(assets_dir, StateA)?.build(GameDataBuilder::default())?;
+    let assets_dir = app_root.join("assets");
+    let game = Application::build(assets_dir, StateA)?.build(DispatcherBuilder::default())?;
     game.run();
     Ok(())
 }

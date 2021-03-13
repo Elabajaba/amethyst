@@ -1,34 +1,56 @@
 //! Local transform component.
-use crate::{
-    alga::general::SubsetOf,
-    ecs::prelude::{Component, DenseVecStorage, FlaggedStorage},
-    math::{
-        self as na, Isometry3, Matrix4, Quaternion, RealField, Translation3, Unit, UnitQuaternion,
-        Vector3,
-    },
-};
+use getset::*;
+use legion_prefab::register_component_type;
 use serde::{Deserialize, Serialize};
+use serde_diff::SerdeDiff;
+use simba::scalar::SubsetOf;
+use type_uuid::TypeUuid;
+
+use crate::math::{
+    self as na, Isometry3, Matrix4, Quaternion, RealField, Translation3, Unit, UnitQuaternion,
+    Vector3,
+};
 
 /// Local position, rotation, and scale (from parent if it exists).
 ///
 /// Used for rendering position and orientation.
 ///
 /// The transforms are preformed in this order: scale, then rotation, then translation.
-#[derive(Getters, Setters, MutGetters, Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Deserialize,
+    Getters,
+    MutGetters,
+    PartialEq,
+    Serialize,
+    Setters,
+    TypeUuid,
+    SerdeDiff,
+)]
+#[uuid = "e20afc7a-6de0-4ea4-95b7-1a6583425208"]
 #[serde(from = "TransformValues", into = "TransformValues")]
 pub struct Transform {
     /// Translation + rotation value
     #[get = "pub"]
     #[set = "pub"]
     #[get_mut = "pub"]
+    #[serde_diff(opaque)]
     isometry: Isometry3<f32>,
     /// Scale vector
     #[get = "pub"]
     #[get_mut = "pub"]
+    #[serde_diff(opaque)]
     scale: Vector3<f32>,
     /// The global transformation matrix.
     #[get = "pub"]
+    #[serde_diff(opaque)]
     pub(crate) global_matrix: Matrix4<f32>,
+    /// The parent transformation matrix.
+    #[get = "pub"]
+    #[serde_diff(opaque)]
+    pub(crate) parent_matrix: Matrix4<f32>,
 }
 
 impl Transform {
@@ -36,9 +58,9 @@ impl Transform {
     ///
     /// # Examples
     ///
-    /// ```rust
-    /// # use amethyst_core::transform::Transform;
-    /// # use amethyst_core::math::{Isometry3, Translation3, UnitQuaternion, Vector3};
+    /// ```
+    /// # use amethyst::core::transform::Transform;
+    /// # use amethyst::core::math::{Isometry3, Translation3, UnitQuaternion, Vector3};
     /// let position = Translation3::new(0.0, 2.0, 4.0);
     /// let rotation = UnitQuaternion::from_euler_angles(0.4, 0.2, 0.0);
     /// let scale = Vector3::new(1.0, 1.0, 1.0);
@@ -56,6 +78,7 @@ impl Transform {
             isometry: Isometry3::from_parts(na::convert(position), na::convert(rotation)),
             scale: na::convert(scale),
             global_matrix: na::one(),
+            parent_matrix: na::one(),
         }
     }
 
@@ -75,22 +98,20 @@ impl Transform {
     ///
     /// # Examples
     ///
-    /// ```rust
-    /// # use amethyst_core::transform::Transform;
-    /// # use amethyst_core::math::{UnitQuaternion, Quaternion, Vector3};
+    /// ```
+    /// # use amethyst::core::transform::Transform;
+    /// # use amethyst::core::math::{UnitQuaternion, Quaternion, Vector3};
     /// let mut t = Transform::default();
     /// // No rotation by default
     /// assert_eq!(*t.rotation().quaternion(), Quaternion::identity());
     /// // look up with up pointing backwards
-    /// t.face_towards(
-    ///     Vector3::new(0.0, 1.0, 0.0),
-    ///     Vector3::new(0.0, 0.0, 1.0),
-    /// );
+    /// t.face_towards(Vector3::new(0.0, 1.0, 0.0), Vector3::new(0.0, 0.0, 1.0));
     /// // our rotation should match the angle from straight ahead to straight up
     /// let rotation = UnitQuaternion::rotation_between(
     ///     &Vector3::new(0.0, 1.0, 0.0),
     ///     &Vector3::new(0.0, 0.0, 1.0),
-    /// ).unwrap();
+    /// )
+    /// .unwrap();
     /// assert_eq!(*t.rotation(), rotation);
     /// // now if we move forwards by 1.0, we'll end up at the point we are facing
     /// // (modulo some floating point error)
@@ -460,7 +481,7 @@ impl Transform {
     /// rotation about the y axis, and 'yaw' will mean rotation about the z axis.
     ///
     /// ```
-    /// # use amethyst_core::transform::Transform;
+    /// # use amethyst::core::transform::Transform;
     /// let mut transform = Transform::default();
     ///
     /// transform.set_rotation_euler(1.0, 0.0, 0.0);
@@ -567,19 +588,18 @@ impl Default for Transform {
             isometry: Isometry3::identity(),
             scale: Vector3::from_element(1.0),
             global_matrix: na::one(),
+            parent_matrix: na::one(),
         }
     }
 }
 
-impl Component for Transform {
-    type Storage = FlaggedStorage<Self, DenseVecStorage<Self>>;
-}
+register_component_type!(Transform);
 
 /// Creates a Transform using the `Vector3` as the translation vector.
 ///
 /// ```
-/// # use amethyst_core::{transform::Transform};
-/// # use amethyst_core::math::Vector3;
+/// # use amethyst::core::{transform::Transform};
+/// # use amethyst::core::math::Vector3;
 /// let transform = Transform::from(Vector3::new(100.0, 200.0, 300.0));
 /// assert_eq!(transform.translation().x, 100.0);
 /// ```
@@ -594,11 +614,10 @@ impl From<Vector3<f32>> for Transform {
 /// Creates a Transform using the `Vector3<f64>` as the translation vector.
 /// Provided for convinience when providing constants.
 /// ```
-/// # use amethyst_core::transform::Transform;
-/// # use amethyst_core::math::Vector3;
+/// # use amethyst::core::transform::Transform;
+/// # use amethyst::core::math::Vector3;
 /// let transform = Transform::from(Vector3::new(100.0, 200.0, 300.0));
 /// assert_eq!(transform.translation().x, 100.0);
-///
 impl From<Vector3<f64>> for Transform {
     #[inline]
     fn from(translation: Vector3<f64>) -> Self {
@@ -609,12 +628,25 @@ impl From<Vector3<f64>> for Transform {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+/// Format for prefab Transform serialization
+#[derive(Clone, Debug, Serialize, Deserialize, TypeUuid, SerdeDiff)]
+#[uuid = "f062a20b-250f-44b3-a58a-4a00f7692c22"]
 #[serde(rename = "Transform", default)]
-struct TransformValues {
+pub struct TransformValues {
     translation: [f32; 3],
     rotation: [f32; 4],
     scale: [f32; 3],
+}
+
+impl TransformValues {
+    /// Initialize a new TransformValues object that can later be use to generate a `Transform`
+    pub fn new(translation: [f32; 3], rotation: [f32; 4], scale: [f32; 3]) -> Self {
+        Self {
+            translation,
+            rotation,
+            scale,
+        }
+    }
 }
 
 impl Default for TransformValues {
@@ -655,12 +687,12 @@ impl From<TransformValues> for Transform {
     }
 }
 
-impl Into<TransformValues> for Transform {
-    fn into(self) -> TransformValues {
+impl From<Transform> for TransformValues {
+    fn from(t: Transform) -> Self {
         TransformValues {
-            translation: self.isometry.translation.vector.into(),
-            rotation: self.isometry.rotation.as_ref().coords.into(),
-            scale: self.scale.into(),
+            translation: t.isometry.translation.vector.into(),
+            rotation: t.isometry.rotation.as_ref().coords.into(),
+            scale: t.scale.into(),
         }
     }
 }
@@ -670,7 +702,7 @@ mod tests {
     use crate::{
         approx::*,
         math::{UnitQuaternion, Vector3},
-        Transform,
+        transform::Transform,
     };
 
     /// Sanity test for concat operation

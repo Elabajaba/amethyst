@@ -1,13 +1,18 @@
 use std::path::PathBuf;
 
-use log::error;
+use image::{self, DynamicImage};
 use serde::{Deserialize, Serialize};
-use winit::{Icon, WindowAttributes, WindowBuilder};
+#[cfg(target_os = "windows")]
+use winit::platform::windows::WindowBuilderExtWindows;
+use winit::{
+    dpi::Size,
+    window::{Fullscreen, Icon, WindowAttributes, WindowBuilder},
+};
 
 use crate::monitor::{MonitorIdent, MonitorsAccess};
 
 /// Configuration for a window display.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct DisplayConfig {
     /// Name of the application window.
     #[serde(default = "default_title")]
@@ -58,8 +63,8 @@ pub struct DisplayConfig {
     ///
     /// # Examples
     ///
-    /// ```rust
-    /// use amethyst_window::{DisplayConfig, Icon};
+    /// ```
+    /// use amethyst::{window::DisplayConfig, winit::window::Icon};
     ///
     /// // First, create your `DisplayConfig` as usual
     /// let mut config = DisplayConfig::default(); // or load from file
@@ -74,8 +79,8 @@ pub struct DisplayConfig {
     /// // It will now be used as the window icon
     /// config.loaded_icon = Some(Icon::from_rgba(icon, 128, 128).unwrap());
     ///
-    /// // Now, feed this into the `GameDataBuilder` using
-    /// // `.with_bundle(WindowBundle::from_config(config))`
+    /// // Now, feed this into the `DispatcherBuilder` using
+    /// // `.add_bundle(WindowBundle::from_config(config))`
     /// ```
     #[serde(skip)]
     pub loaded_icon: Option<Icon>,
@@ -124,9 +129,6 @@ impl DisplayConfig {
     /// The `MonitorsAccess` is needed to configure a fullscreen window.
     pub fn into_window_builder(self, monitors: &impl MonitorsAccess) -> WindowBuilder {
         let attrs = WindowAttributes {
-            dimensions: self.dimensions.map(Into::into),
-            max_dimensions: self.max_dimensions.map(Into::into),
-            min_dimensions: self.min_dimensions.map(Into::into),
             title: self.title,
             maximized: self.maximized,
             visible: self.visibility,
@@ -134,31 +136,65 @@ impl DisplayConfig {
             decorations: self.decorations,
             always_on_top: self.always_on_top,
             window_icon: None,
-            fullscreen: self.fullscreen.map(|ident| ident.monitor_id(monitors)),
+            fullscreen: self
+                .fullscreen
+                .map(|ident| Fullscreen::Borderless(Some(ident.monitor_id(monitors)))),
             resizable: self.resizable,
-            multitouch: self.multitouch,
+            inner_size: self.dimensions.map(|d| d.into()).map(Size::Logical),
+            min_inner_size: self.min_dimensions.map(|d| d.into()).map(Size::Logical),
+            max_inner_size: self.max_dimensions.map(|d| d.into()).map(Size::Logical),
         };
 
         let mut builder = WindowBuilder::new();
+
+        #[cfg(target_os = "windows")]
+        {
+            builder = builder.with_drag_and_drop(false);
+        }
+
         builder.window = attrs;
 
         if self.loaded_icon.is_some() {
             builder = builder.with_window_icon(self.loaded_icon);
-        } else if let Some(icon) = self.icon {
-            let icon = match Icon::from_path(&icon) {
-                Ok(x) => Some(x),
-                Err(e) => {
-                    error!(
-                        "Failed to load window icon from `{}`: {}",
-                        icon.display(),
-                        e
-                    );
+        } else {
+            let mut use_fallback = true;
+            let mut img = DynamicImage::new_rgb8(1, 1);
 
-                    None
+            if let Some(icon_path) = self.icon {
+                let image = image::open(icon_path);
+
+                if let Ok(image) = image {
+                    img = image;
+                    use_fallback = false;
                 }
-            };
+            }
 
-            builder = builder.with_window_icon(icon);
+            if use_fallback {
+                let fallback_icon = include_bytes!("fallback.png");
+                let icon_img =
+                    image::load_from_memory_with_format(fallback_icon, image::ImageFormat::Png);
+
+                if let Ok(icon_img) = icon_img {
+                    img = icon_img;
+                }
+            }
+
+            let (icon_rgba, icon_width, icon_height) = {
+                use image::{GenericImageView, Pixel};
+                let (width, height) = img.dimensions();
+                let mut rgba = Vec::with_capacity((width * height) as usize * 4);
+                for (_, _, pixel) in img.pixels() {
+                    rgba.extend_from_slice(&pixel.to_rgba().channels());
+                }
+                (rgba, width, height)
+            };
+            match Icon::from_rgba(icon_rgba, icon_width, icon_height) {
+                Ok(res) => {
+                    builder = builder.with_window_icon(Option::from(res));
+                }
+
+                Err(_e) => {}
+            };
         }
 
         builder

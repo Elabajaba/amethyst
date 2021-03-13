@@ -1,35 +1,33 @@
 //! Set of predefined implementations of `RenderPlugin` for use with `RenderingBundle`.
 
-use crate::{
-    bundle::{RenderOrder, RenderPlan, RenderPlugin, Target},
-    pass::*,
-    sprite_visibility::SpriteVisibilitySortingSystem,
-    visibility::VisibilitySortingSystem,
-    Backend, Factory,
-};
-use amethyst_core::ecs::{DispatcherBuilder, World};
+use amethyst_core::ecs::*;
 use amethyst_error::Error;
 use palette::Srgb;
 use rendy::graph::render::RenderGroupDesc;
-
 #[cfg(feature = "window")]
 pub use window::RenderToWindow;
 
+use crate::{
+    bundle::{RenderOrder, RenderPlan, RenderPlugin, Target},
+    pass::*,
+    sprite_visibility::{SpriteVisibility, SpriteVisibilitySortingSystem},
+    visibility::{Visibility, VisibilitySortingSystem},
+    Backend, Factory,
+};
+
 #[cfg(feature = "window")]
 mod window {
+    use std::path::Path;
+
+    use amethyst_config::{Config, ConfigError};
+    use amethyst_window::{DisplayConfig, ScreenDimensions, Window, WindowBundle};
+    use rendy::hal::command::{ClearColor, ClearDepthStencil, ClearValue};
+
     use super::*;
     use crate::{
         bundle::{ImageOptions, OutputColor},
         Format, Kind,
     };
-    use amethyst_config::{Config, ConfigError};
-    use amethyst_core::{
-        ecs::{ReadExpect, SystemData},
-        SystemBundle,
-    };
-    use amethyst_window::{DisplayConfig, ScreenDimensions, Window, WindowBundle};
-    use rendy::hal::command::{ClearColor, ClearDepthStencil, ClearValue};
-    use std::path::Path;
 
     /// A [RenderPlugin] for opening a window and displaying a render target to it.
     ///
@@ -67,20 +65,28 @@ mod window {
         /// This function takes linear RGBA. You can convert rgba to linear rgba like so:
         ///
         /// ```
-        /// use amethyst_rendy::palette::Srgba;
-        /// use amethyst_rendy::RenderToWindow;
-        /// use amethyst_window::DisplayConfig;
+        /// use amethyst::{
+        ///     renderer::{palette::Srgba, rendy::hal::command::ClearColor, RenderToWindow},
+        ///     window::DisplayConfig,
+        /// };
         ///
         /// let your_red: f32 = 255.;
         /// let your_green: f32 = 160.;
         /// let your_blue: f32 = 122.;
         /// let your_alpha: f32 = 1.0;
         ///
-        /// let (r, g, b, a) = Srgba::new(your_red / 255., your_green / 255., your_blue / 255., your_alpha)
-        ///     .into_linear()
-        ///     .into_components();
+        /// let (r, g, b, a) = Srgba::new(
+        ///     your_red / 255.,
+        ///     your_green / 255.,
+        ///     your_blue / 255.,
+        ///     your_alpha,
+        /// )
+        /// .into_linear()
+        /// .into_components();
         ///
-        /// RenderToWindow::from_config(DisplayConfig::default()).with_clear([r, g, b, a]);
+        /// RenderToWindow::from_config(DisplayConfig::default()).with_clear(ClearColor {
+        ///     float32: [r, g, b, a],
+        /// });
         /// ```
         pub fn with_clear(mut self, clear: impl Into<ClearColor>) -> Self {
             self.clear = Some(clear.into());
@@ -89,21 +95,22 @@ mod window {
     }
 
     impl<B: Backend> RenderPlugin<B> for RenderToWindow {
-        fn on_build<'a, 'b>(
+        fn on_build(
             &mut self,
             world: &mut World,
-            builder: &mut DispatcherBuilder<'a, 'b>,
+            resources: &mut Resources,
+            builder: &mut DispatcherBuilder,
         ) -> Result<(), Error> {
             if let Some(config) = self.config.take() {
-                WindowBundle::from_config(config).build(world, builder)?;
+                builder.add_bundle(WindowBundle::from_config(config));
             }
 
             Ok(())
         }
 
         #[allow(clippy::map_clone)]
-        fn should_rebuild(&mut self, world: &World) -> bool {
-            let new_dimensions = world.try_fetch::<ScreenDimensions>();
+        fn should_rebuild(&mut self, world: &World, resources: &Resources) -> bool {
+            let new_dimensions = resources.get::<ScreenDimensions>();
             if self.dimensions.as_ref() != new_dimensions.as_deref() {
                 self.dirty = true;
                 self.dimensions = new_dimensions.map(|d| (*d).clone());
@@ -117,11 +124,14 @@ mod window {
             plan: &mut RenderPlan<B>,
             factory: &mut Factory<B>,
             world: &World,
+            resources: &Resources,
         ) -> Result<(), Error> {
             self.dirty = false;
 
-            let window = <ReadExpect<'_, Window>>::fetch(world);
-            let surface = factory.create_surface(&window);
+            let window = resources.get::<Window>().unwrap();
+            // Explicitly deref so we get a type that implements HasRawWindowHandle.
+            let window: &Window = &window;
+            let surface = factory.create_surface(window)?;
             let dimensions = self.dimensions.as_ref().unwrap();
             let window_kind = Kind::D2(dimensions.width() as u32, dimensions.height() as u32, 1, 1);
 
@@ -129,7 +139,12 @@ mod window {
                 kind: window_kind,
                 levels: 1,
                 format: Format::D32Sfloat,
-                clear: Some(ClearValue::DepthStencil(ClearDepthStencil(0.0, 0))),
+                clear: Some(ClearValue {
+                    depth_stencil: ClearDepthStencil {
+                        depth: 0.0,
+                        stencil: 0,
+                    },
+                }),
             };
 
             plan.add_root(Target::Main);
@@ -138,7 +153,7 @@ mod window {
                 crate::bundle::TargetPlanOutputs {
                     colors: vec![OutputColor::Surface(
                         surface,
-                        self.clear.map(ClearValue::Color),
+                        self.clear.map(|color| ClearValue { color }),
                     )],
                     depth: Some(depth_options),
                 },
@@ -183,12 +198,14 @@ impl<D: Base3DPassDef> RenderBase3D<D> {
 }
 
 impl<B: Backend, D: Base3DPassDef> RenderPlugin<B> for RenderBase3D<D> {
-    fn on_build<'a, 'b>(
+    fn on_build(
         &mut self,
         world: &mut World,
-        builder: &mut DispatcherBuilder<'a, 'b>,
+        resources: &mut Resources,
+        builder: &mut DispatcherBuilder,
     ) -> Result<(), Error> {
-        builder.add(VisibilitySortingSystem::new(), "visibility_system", &[]);
+        resources.insert(Visibility::default());
+        builder.add_system(VisibilitySortingSystem::default());
         Ok(())
     }
 
@@ -197,6 +214,7 @@ impl<B: Backend, D: Base3DPassDef> RenderPlugin<B> for RenderBase3D<D> {
         plan: &mut RenderPlan<B>,
         _factory: &mut Factory<B>,
         _world: &World,
+        _resources: &Resources,
     ) -> Result<(), Error> {
         let skinning = self.skinning;
         plan.extend_target(self.target, move |ctx| {
@@ -234,16 +252,14 @@ impl RenderFlat2D {
 }
 
 impl<B: Backend> RenderPlugin<B> for RenderFlat2D {
-    fn on_build<'a, 'b>(
+    fn on_build(
         &mut self,
         world: &mut World,
-        builder: &mut DispatcherBuilder<'a, 'b>,
+        resources: &mut Resources,
+        builder: &mut DispatcherBuilder,
     ) -> Result<(), Error> {
-        builder.add(
-            SpriteVisibilitySortingSystem::new(),
-            "sprite_visibility_system",
-            &[],
-        );
+        resources.insert(SpriteVisibility::default());
+        builder.add_system(SpriteVisibilitySortingSystem);
         Ok(())
     }
 
@@ -252,6 +268,7 @@ impl<B: Backend> RenderPlugin<B> for RenderFlat2D {
         plan: &mut RenderPlan<B>,
         _factory: &mut Factory<B>,
         _world: &World,
+        _resources: &Resources,
     ) -> Result<(), Error> {
         plan.extend_target(self.target, |ctx| {
             ctx.add(RenderOrder::Opaque, DrawFlat2DDesc::new().builder())?;
@@ -286,6 +303,7 @@ impl<B: Backend> RenderPlugin<B> for RenderDebugLines {
         plan: &mut RenderPlan<B>,
         _factory: &mut Factory<B>,
         _world: &World,
+        _resources: &Resources,
     ) -> Result<(), Error> {
         plan.extend_target(self.target, |ctx| {
             ctx.add(
@@ -327,6 +345,7 @@ impl<B: Backend> RenderPlugin<B> for RenderSkybox {
         plan: &mut RenderPlan<B>,
         _factory: &mut Factory<B>,
         _world: &World,
+        _resources: &Resources,
     ) -> Result<(), Error> {
         let colors = self.colors;
         plan.extend_target(self.target, move |ctx| {

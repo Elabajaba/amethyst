@@ -3,19 +3,20 @@
 use amethyst::{
     assets::{PrefabLoader, PrefabLoaderSystemDesc, RonFormat},
     core::transform::TransformBundle,
-    ecs::prelude::WorldExt,
-    input::{InputBundle, StringBindings},
+    input::InputBundle,
     prelude::*,
     renderer::{
         plugins::RenderToWindow,
-        rendy::mesh::{Normal, Position, TexCoord},
+        rendy::{
+            hal::command::ClearColor,
+            mesh::{Normal, Position, TexCoord},
+        },
         types::DefaultBackend,
         RenderingBundle,
     },
     ui::{RenderUi, ToNativeWidget, UiBundle, UiCreator, UiTransformData, UiWidget},
     utils::{application_root_dir, scene::BasicScenePrefab},
 };
-
 use serde::Deserialize;
 
 type MyPrefabData = BasicScenePrefab<(Vec<Position>, Vec<Normal>, Vec<TexCoord>)>;
@@ -75,13 +76,13 @@ impl ToNativeWidget for CustomUi {
 struct Example;
 
 impl SimpleState for Example {
-    fn on_start(&mut self, data: StateData<'_, GameData<'_, '_>>) {
+    fn on_start(&mut self, data: StateData<'_, GameData>) {
         let StateData { world, .. } = data;
-        // Initialise the scene with an object, a light and a camera.
+        // initialize the scene with an object, a light and a camera.
         let handle = world.exec(|loader: PrefabLoader<'_, MyPrefabData>| {
             loader.load("prefab/sphere.ron", RonFormat, ())
         });
-        world.create_entity().with(handle).build();
+        world.push((handle,));
 
         // Load custom UI prefab
         world.exec(|mut creator: UiCreator<'_, CustomUi>| {
@@ -94,24 +95,25 @@ fn main() -> amethyst::Result<()> {
     amethyst::start_logger(Default::default());
 
     let app_root = application_root_dir()?;
-    let display_config_path = app_root.join("examples/custom_ui/config/display.ron");
-    let assets_dir = app_root.join("examples/custom_ui/assets");
+    let display_config_path = app_root.join("config/display.ron");
+    let assets_dir = app_root.join("assets");
 
-    let game_data = GameDataBuilder::default()
+    let mut game_data = DispatcherBuilder::default()
         .with_system_desc(PrefabLoaderSystemDesc::<MyPrefabData>::default(), "", &[])
-        .with_bundle(TransformBundle::new())?
-        .with_bundle(InputBundle::<StringBindings>::new())?
-        .with_bundle(UiBundle::<StringBindings, CustomUi>::new())?
-        .with_bundle(
+        .add_bundle(TransformBundle::new())?
+        .add_bundle(InputBundle::new())?
+        .add_bundle(UiBundle::<StringBindings, CustomUi>::new())?
+        .add_bundle(
             RenderingBundle::<DefaultBackend>::new()
                 .with_plugin(
-                    RenderToWindow::from_config_path(display_config_path)?
-                        .with_clear([0.34, 0.36, 0.52, 1.0]),
+                    RenderToWindow::from_config_path(display_config_path)?.with_clear(ClearColor {
+                        float32: [0.34, 0.36, 0.52, 1.0],
+                    }),
                 )
                 .with_plugin(RenderUi::default()),
         )?;
 
-    let mut game = Application::new(assets_dir, Example, game_data)?;
+    let game = Application::build(assets_dir, Example)?.build(game_data)?;
     game.run();
     Ok(())
 }

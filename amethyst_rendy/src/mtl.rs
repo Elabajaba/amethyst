@@ -1,8 +1,18 @@
 //! Physically-based material.
 
+use amethyst_assets::{
+    erased_serde::private::serde::{de, de::SeqAccess, ser::SerializeSeq},
+    prefab::{
+        register_component_type,
+        serde_diff::{ApplyContext, DiffContext},
+        SerdeDiff,
+    },
+    Asset, Handle,
+};
+use serde::{Deserialize, Serialize};
+use type_uuid::TypeUuid;
+
 use crate::types::Texture;
-use amethyst_assets::{Asset, Handle};
-use amethyst_core::ecs::prelude::DenseVecStorage;
 
 /// Material reference this part of the texture
 #[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
@@ -23,7 +33,8 @@ impl Default for TextureOffset {
 }
 
 /// A physically based Material with metallic workflow, fully utilized in PBR render pass.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TypeUuid)]
+#[uuid = "e238c036-42e9-4d0e-9aa9-c6511c906820"]
 pub struct Material {
     /// Alpha cutoff: the value at which we do not draw the pixel
     pub alpha_cutoff: f32,
@@ -44,10 +55,46 @@ pub struct Material {
 }
 
 impl Asset for Material {
-    const NAME: &'static str = "renderer::Material";
+    fn name() -> &'static str {
+        "renderer::Material"
+    }
     type Data = Self;
-    type HandleStorage = DenseVecStorage<Handle<Self>>;
 }
+
+impl Default for Material {
+    fn default() -> Self {
+        unimplemented!()
+    }
+}
+
+impl SerdeDiff for Material {
+    fn diff<'a, S: SerializeSeq>(
+        &self,
+        ctx: &mut DiffContext<'a, S>,
+        other: &Self,
+    ) -> Result<bool, <S as SerializeSeq>::Error> {
+        unimplemented!()
+    }
+
+    fn apply<'de, A>(
+        &mut self,
+        seq: &mut A,
+        ctx: &mut ApplyContext,
+    ) -> Result<bool, <A as SeqAccess<'de>>::Error>
+    where
+        A: de::SeqAccess<'de>,
+    {
+        unimplemented!()
+    }
+}
+
+register_component_type!(Material);
+
+// impl From<Material> for Material {
+//     fn from(material: Material) -> Self {
+//         material
+//     }
+// }
 
 /// A resource providing default textures for `Material`.
 /// These will be be used by the renderer in case a texture

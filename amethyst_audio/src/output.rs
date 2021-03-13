@@ -7,16 +7,22 @@ use std::{
     sync::Arc,
 };
 
-use cpal::traits::DeviceTrait;
+use amethyst_core::ecs::Resources;
+use cpal::{traits::DeviceTrait, Devices, OutputDevices};
 use log::error;
-use rodio::{
-    default_output_device, output_devices, Decoder, Device, Devices, OutputDevices, Sink,
-    Source as RSource,
-};
-
-use amethyst_core::ecs::World;
+use rodio::{default_output_device, output_devices, Decoder, Device, Sink, Source as RSource};
 
 use crate::{sink::AudioSink, source::Source, DecoderError};
+
+#[derive(Default)]
+#[allow(missing_debug_implementations)]
+/// A wrapper designed to keep the output and audio_sink used by Audio systems
+pub struct OutputWrapper {
+    /// Speaker used to play any sound
+    pub output: Option<Output>,
+    /// A struct designed to programmatically pick and play music
+    pub audio_sink: Option<AudioSink>,
+}
 
 /// A speaker(s) through which audio can be played.
 ///
@@ -34,8 +40,10 @@ pub struct Output {
 impl Default for Output {
     fn default() -> Self {
         default_output_device()
-            .map(|device| Output {
-                device: Arc::new(device),
+            .map(|device| {
+                Output {
+                    device: Arc::new(device),
+                }
             })
             .expect("No default output device")
     }
@@ -84,11 +92,7 @@ impl Output {
     ) -> Result<(), DecoderError> {
         let sink = Sink::new(&self.device);
         for _ in 0..n {
-            sink.append(
-                Decoder::new(Cursor::new(source.clone()))
-                    .map_err(|_| DecoderError)?
-                    .amplify(volume),
-            );
+            sink.append(Decoder::new(Cursor::new(source.clone()))?.amplify(volume));
         }
         sink.detach();
         Ok(())
@@ -113,16 +117,20 @@ impl Iterator for OutputIterator {
     type Item = Output;
 
     fn next(&mut self) -> Option<Output> {
-        self.devices.next().map(|device| Output {
-            device: Arc::new(device),
+        self.devices.next().map(|device| {
+            Output {
+                device: Arc::new(device),
+            }
         })
     }
 }
 
 /// Get the default output, returns none if no outputs are available.
 pub fn default_output() -> Option<Output> {
-    default_output_device().map(|device| Output {
-        device: Arc::new(device),
+    default_output_device().map(|device| {
+        Output {
+            device: Arc::new(device),
+        }
     })
 }
 
@@ -134,58 +142,60 @@ pub fn outputs() -> OutputIterator {
 }
 
 /// Initialize default output
-pub fn init_output(world: &mut World) {
+pub fn init_output(res: &mut Resources) {
+    if !res.contains::<OutputWrapper>() {
+        res.insert(OutputWrapper::default());
+    }
+
+    let mut wrapper = res.get_mut::<OutputWrapper>().unwrap();
+
     if let Some(o) = default_output() {
-        world
-            .entry::<AudioSink>()
-            .or_insert_with(|| AudioSink::new(&o));
-        world.entry::<Output>().or_insert_with(|| o);
+        if wrapper.audio_sink.is_none() {
+            wrapper.audio_sink = Some(AudioSink::new(&o));
+        }
+        if wrapper.output.is_none() {
+            wrapper.output = Some(o);
+        }
     } else {
         error!("Failed finding a default audio output to hook AudioSink to, audio will not work!")
     }
 }
 
 #[cfg(test)]
+#[cfg(target_os = "linux")] // these tests only work in linux CI
 mod tests {
-    #[cfg(target_os = "linux")]
-    use {
-        crate::{output::Output, source::Source, DecoderError},
-        amethyst_utils::app_root_dir::application_root_dir,
-        std::{fs::File, io::Read, vec::Vec},
-    };
+    use std::{fs::File, io::Read, vec::Vec};
+
+    use amethyst_utils::app_root_dir::application_root_dir;
+
+    use crate::{output::Output, source::Source, DecoderError};
 
     #[test]
-    #[cfg(target_os = "linux")]
     fn test_play_wav() {
         test_play("tests/sound_test.wav", true)
     }
 
     #[test]
-    #[cfg(target_os = "linux")]
     fn test_play_mp3() {
         test_play("tests/sound_test.mp3", true);
     }
 
     #[test]
-    #[cfg(target_os = "linux")]
     fn test_play_flac() {
         test_play("tests/sound_test.flac", true);
     }
 
     #[test]
-    #[cfg(target_os = "linux")]
     fn test_play_ogg() {
         test_play("tests/sound_test.ogg", true);
     }
 
     #[test]
-    #[cfg(target_os = "linux")]
     fn test_play_fake() {
         test_play("tests/sound_test.fake", false);
     }
 
     // test_play tests the play APIs for Output
-    #[cfg(target_os = "linux")]
     fn test_play(file_name: &str, should_pass: bool) {
         // Get the full file path
         let app_root = application_root_dir().unwrap();
@@ -217,18 +227,21 @@ mod tests {
         check_result(result_try_play_n_times, should_pass);
     }
 
-    #[cfg(target_os = "linux")]
     fn check_result(result: Result<(), DecoderError>, should_pass: bool) {
         match result {
-            Ok(_pass) => assert!(
-                should_pass,
-                "Expected `play` result to be Err(..), but was Ok(..)"
-            ),
-            Err(fail) => assert!(
-                !should_pass,
-                "Expected `play` result to be `Ok(..)`, but was {:?}",
-                fail
-            ),
+            Ok(_pass) => {
+                assert!(
+                    should_pass,
+                    "Expected `play` result to be Err(..), but was Ok(..)"
+                )
+            }
+            Err(fail) => {
+                assert!(
+                    !should_pass,
+                    "Expected `play` result to be `Ok(..)`, but was {:?}",
+                    fail
+                )
+            }
         };
     }
 }

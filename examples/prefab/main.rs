@@ -1,56 +1,110 @@
 //! Demonstrates loading prefabs using the Amethyst engine.
-
 use amethyst::{
-    assets::{PrefabLoader, PrefabLoaderSystemDesc, RonFormat},
-    core::TransformBundle,
+    assets::{
+        prefab::{legion_prefab, register_component_type, serde_diff, Prefab, SerdeDiff},
+        DefaultLoader, Handle, Loader, LoaderBundle,
+    },
+    core::{transform::TransformBundle, Time},
     prelude::*,
     renderer::{
         plugins::{RenderShaded3D, RenderToWindow},
-        rendy::mesh::{Normal, Position, TexCoord},
+        rendy::hal::command::ClearColor,
         types::DefaultBackend,
         RenderingBundle,
     },
-    utils::{application_root_dir, scene::BasicScenePrefab},
+    utils::application_root_dir,
     Error,
 };
+use serde::{Deserialize, Serialize};
+use type_uuid::TypeUuid;
 
-type MyPrefabData = BasicScenePrefab<(Vec<Position>, Vec<Normal>, Vec<TexCoord>)>;
+#[derive(TypeUuid, Serialize, Deserialize, SerdeDiff, Clone, Default, Debug)]
+#[uuid = "f5780013-bae4-49f0-ac0e-a108ff52fec0"]
+struct Position2D {
+    position: Vec<f32>,
+}
 
-struct AssetsExample;
+register_component_type!(Position2D);
+
+struct AssetsExample {
+    prefab_handle: Option<Handle<Prefab>>,
+}
 
 impl SimpleState for AssetsExample {
-    fn on_start(&mut self, data: StateData<'_, GameData<'_, '_>>) {
-        let prefab_handle = data.world.exec(|loader: PrefabLoader<'_, MyPrefabData>| {
-            loader.load("prefab/example.ron", RonFormat, ())
-        });
-        data.world.create_entity().with(prefab_handle).build();
+    fn update(&mut self, data: &mut StateData<'_, GameData>) -> SimpleTrans {
+        if self.prefab_handle.is_none() {
+            log::info!("No prefab loaded, loading now...");
+
+            let loader = data.resources.get_mut::<DefaultLoader>().unwrap();
+            let prefab_handle: Handle<Prefab> = loader.load("prefab/test.prefab");
+            self.prefab_handle = Some(prefab_handle.clone());
+            data.world.push((prefab_handle,));
+        }
+
+        let time = data.resources.get::<Time>().unwrap();
+
+        if time.frame_number() % 60 == 0 {
+            let mut query = <(Entity,)>::query();
+            let entities: Vec<Entity> = query.iter(data.world).map(|(ent,)| *ent).collect();
+            for entity in entities {
+                if let Some(entry) = data.world.entry(entity) {
+                    log::info!("{:?}: {:?}", entity, entry.archetype());
+                    if let Ok(pos) = entry.get_component::<Position2D>() {
+                        log::info!("{:?}", pos);
+                    }
+                }
+            }
+        }
+
+        Trans::None
     }
 }
 
 /// Wrapper around the main, so we can return errors easily.
 fn main() -> Result<(), Error> {
-    amethyst::start_logger(Default::default());
+    let config = amethyst::LoggerConfig {
+        level_filter: amethyst::LogLevelFilter::Debug,
+        module_levels: vec![
+            (
+                "amethyst_assets".to_string(),
+                amethyst::LogLevelFilter::Trace,
+            ),
+            ("distill_daemon".to_string(), amethyst::LogLevelFilter::Warn),
+            ("distill_loader".to_string(), amethyst::LogLevelFilter::Warn),
+        ],
+        ..Default::default()
+    };
+
+    amethyst::start_logger(config);
 
     let app_root = application_root_dir()?;
 
     // Add our meshes directory to the asset loader.
-    let assets_dir = app_root.join("examples/prefab/assets");
+    let assets_dir = app_root.join("assets");
 
-    let display_config_path = app_root.join("examples/prefab/config/display.ron");
+    let display_config_path = app_root.join("config/display.ron");
 
-    let game_data = GameDataBuilder::default()
-        .with_system_desc(PrefabLoaderSystemDesc::<MyPrefabData>::default(), "", &[])
-        .with_bundle(TransformBundle::new())?
-        .with_bundle(
+    let mut dispatcher_builder = DispatcherBuilder::default();
+    dispatcher_builder
+        .add_bundle(LoaderBundle)
+        .add_bundle(TransformBundle)
+        .add_bundle(
             RenderingBundle::<DefaultBackend>::new()
                 .with_plugin(
-                    RenderToWindow::from_config_path(display_config_path)?
-                        .with_clear([0.34, 0.36, 0.52, 1.0]),
+                    RenderToWindow::from_config_path(display_config_path)?.with_clear(ClearColor {
+                        float32: [0.34, 0.36, 0.52, 1.0],
+                    }),
                 )
                 .with_plugin(RenderShaded3D::default()),
-        )?;
+        );
 
-    let mut game = Application::new(assets_dir, AssetsExample, game_data)?;
+    let game = Application::new(
+        assets_dir,
+        AssetsExample {
+            prefab_handle: None,
+        },
+        dispatcher_builder,
+    )?;
     game.run();
     Ok(())
 }

@@ -1,25 +1,23 @@
-use super::DemoState;
 use amethyst::{
     core::{
         math::{UnitQuaternion, Vector3},
         Time, Transform,
     },
-    derive::SystemDesc,
-    ecs::prelude::{
-        Entity, Join, Read, ReadStorage, System, SystemData, WriteExpect, WriteStorage,
-    },
+    ecs::{Entity, System},
     renderer::{camera::Camera, light::Light},
     ui::{UiFinder, UiText},
     utils::fps_counter::FpsCounter,
 };
 
-#[derive(Default, SystemDesc)]
+use super::DemoState;
+
+#[derive(Default)]
 pub struct ExampleSystem {
     #[system_desc(skip)]
     fps_display: Option<Entity>,
 }
 
-impl<'a> System<'a> for ExampleSystem {
+impl<'a> System for ExampleSystem {
     type SystemData = (
         WriteStorage<'a, Light>,
         Read<'a, Time>,

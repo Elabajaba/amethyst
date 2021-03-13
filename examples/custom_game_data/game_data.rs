@@ -1,15 +1,15 @@
 use std::marker::PhantomData;
 
 use amethyst::{
-    core::{ArcThreadPool, SystemBundle, SystemDesc},
-    ecs::prelude::{Dispatcher, DispatcherBuilder, System, World, WorldExt},
+    core::{ArcThreadPool, SystemBundle},
+    ecs::{Dispatcher, DispatcherBuilder, System, World},
     error::Error,
     DataDispose, DataInit,
 };
 
 pub struct CustomGameData<'a, 'b> {
-    pub base: Option<Dispatcher<'a, 'b>>,
-    pub running: Option<Dispatcher<'a, 'b>>,
+    pub base: Option<Dispatcher>,
+    pub running: Option<Dispatcher>,
 }
 
 impl<'a, 'b> CustomGameData<'a, 'b> {
@@ -36,26 +36,26 @@ impl<'a, 'b> CustomGameData<'a, 'b> {
     }
 }
 
-impl DataDispose for CustomGameData<'_, '_> {
+impl DataDispose for CustomGameData {
     fn dispose(&mut self, world: &mut World) {
         self.dispose(world);
     }
 }
 
-pub struct CustomGameDataBuilder<'a, 'b> {
+pub struct CustomDispatcherBuilder<'a, 'b> {
     base_dispatcher_operations: Vec<Box<dyn DispatcherOperation<'a, 'b>>>,
     running_dispatcher_operations: Vec<Box<dyn DispatcherOperation<'a, 'b>>>,
 }
 
-impl<'a, 'b> Default for CustomGameDataBuilder<'a, 'b> {
+impl<'a, 'b> Default for CustomDispatcherBuilder<'a, 'b> {
     fn default() -> Self {
-        CustomGameDataBuilder::new()
+        CustomDispatcherBuilder::new()
     }
 }
 
-impl<'a, 'b> CustomGameDataBuilder<'a, 'b> {
+impl<'a, 'b> CustomDispatcherBuilder<'a, 'b> {
     pub fn new() -> Self {
-        CustomGameDataBuilder {
+        CustomDispatcherBuilder {
             base_dispatcher_operations: vec![],
             running_dispatcher_operations: vec![],
         }
@@ -69,7 +69,7 @@ impl<'a, 'b> CustomGameDataBuilder<'a, 'b> {
     ) -> Self
     where
         SD: SystemDesc<'a, 'b, S> + 'static,
-        S: for<'c> System<'c> + 'static + Send,
+        S: for<'c> System + 'static + Send,
     {
         let dispatcher_operation = Box::new(AddSystem {
             system_desc,
@@ -98,7 +98,7 @@ impl<'a, 'b> CustomGameDataBuilder<'a, 'b> {
     ) -> Self
     where
         SD: SystemDesc<'a, 'b, S> + 'static,
-        S: for<'c> System<'c> + 'static + Send,
+        S: for<'c> System + 'static + Send,
     {
         let dispatcher_operation = Box::new(AddSystem {
             system_desc,
@@ -112,7 +112,7 @@ impl<'a, 'b> CustomGameDataBuilder<'a, 'b> {
     }
 }
 
-impl<'a, 'b> DataInit<CustomGameData<'a, 'b>> for CustomGameDataBuilder<'a, 'b> {
+impl<'a, 'b> DataInit<CustomGameData<'a, 'b>> for CustomDispatcherBuilder<'a, 'b> {
     fn build(self, world: &mut World) -> CustomGameData<'a, 'b> {
         let base = build_dispatcher(world, self.base_dispatcher_operations);
         let running = build_dispatcher(world, self.running_dispatcher_operations);
@@ -127,7 +127,7 @@ impl<'a, 'b> DataInit<CustomGameData<'a, 'b>> for CustomGameDataBuilder<'a, 'b> 
 fn build_dispatcher<'a, 'b>(
     world: &mut World,
     dispatcher_operations: Vec<Box<dyn DispatcherOperation<'a, 'b>>>,
-) -> Dispatcher<'a, 'b> {
+) -> Dispatcher {
     let mut dispatcher_builder = DispatcherBuilder::new();
 
     #[cfg(not(no_threading))]
@@ -168,7 +168,7 @@ struct AddSystem<SD, S> {
 impl<'a, 'b, SD, S> DispatcherOperation<'a, 'b> for AddSystem<SD, S>
 where
     SD: SystemDesc<'a, 'b, S>,
-    S: for<'s> System<'s> + Send + 'a,
+    S: for<'s> System + Send + 'a,
 {
     fn exec(
         self: Box<Self>,

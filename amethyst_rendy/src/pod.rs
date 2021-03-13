@@ -1,14 +1,8 @@
 //! GPU POD data types.
-use crate::{
-    mtl,
-    resources::Tint as TintComponent,
-    sprite::{SpriteRender, SpriteSheet},
-    types::Texture,
-};
-use amethyst_assets::{AssetStorage, Handle};
+
 use amethyst_core::{
     math::{convert, Matrix4, Vector4},
-    Transform,
+    transform::Transform,
 };
 use glsl_layout::*;
 use rendy::{
@@ -16,14 +10,16 @@ use rendy::{
     mesh::{AsAttribute, AsVertex, Model, VertexFormat},
 };
 
+use crate::{mtl, resources::Tint as TintComponent, Sprite};
+
 /// TextureOffset
-/// ```glsl,ignore
+/// ```glsl
 /// struct UvOffset {
 ///    vec2 u_offset;
 ///    vec2 v_offset;
 /// };
 /// ```
-#[derive(Clone, Copy, Debug, AsStd140)]
+#[derive(Clone, Copy, Debug, Uniform)]
 #[repr(C, align(16))]
 pub struct TextureOffset {
     /// U-axis offset
@@ -43,14 +39,14 @@ impl TextureOffset {
 }
 
 /// ViewArgs
-/// ```glsl,ignore
+/// ```glsl
 /// uniform ViewArgs {
 ///    uniform mat4 proj;
 ///    uniform mat4 view;
 ///    uniform mat4 proj_view;
 /// };
 /// ```
-#[derive(Clone, Copy, Debug, AsStd140)]
+#[derive(Clone, Copy, Debug, Uniform)]
 #[repr(C, align(16))]
 pub struct ViewArgs {
     /// Projection matrix
@@ -62,10 +58,10 @@ pub struct ViewArgs {
 }
 
 /// Tint
-/// ```glsl,ignore
+/// ```glsl
 /// vec4 tint;
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, AsStd140)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Uniform)]
 #[repr(C, align(16))]
 pub struct Tint {
     /// Tint color as `Rgba32Sfloat`
@@ -78,7 +74,7 @@ impl AsAttribute for Tint {
 }
 
 /// Instance-rate vertex arguments
-/// ```glsl,ignore
+/// ```glsl
 ///  mat4 model;
 ///  vec4 tint;
 /// ```
@@ -115,10 +111,10 @@ impl AsVertex for VertexArgs {
 }
 
 /// Instance-rate joints offset
-/// ```glsl,ignore
+/// ```glsl
 ///  uint joints_offset;
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, AsStd140)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Uniform)]
 #[repr(C, align(4))]
 pub struct JointsOffset {
     /// `u32` joints offset value
@@ -131,13 +127,13 @@ impl AsAttribute for JointsOffset {
 }
 
 /// Skinned Instance-rate vertex arguments.
-/// ```glsl,ignore
+/// ```glsl
 ///  mat4 model;
 ///  vec4 tint;
 ///  uint joints_offset:
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-#[repr(C, packed)]
+#[repr(C)]
 pub struct SkinnedVertexArgs {
     /// Instance-rate model matrix
     pub model: mat4,
@@ -175,14 +171,14 @@ impl SkinnedVertexArgs {
 }
 
 /// point light struct
-/// ```glsl,ignore
+/// ```glsl
 /// struct PointLight {
 ///    vec3 position;
 ///    vec3 color;
 ///    float intensity;
 /// };
 /// ```
-#[derive(Clone, Copy, Debug, AsStd140)]
+#[derive(Clone, Copy, Debug, Uniform)]
 pub struct PointLight {
     /// Light world position
     pub position: vec3,
@@ -193,14 +189,14 @@ pub struct PointLight {
 }
 
 /// directional light struct
-/// ```glsl,ignore
+/// ```glsl
 /// struct DirectionalLight {
 ///    vec3 color;
 ///    float intensity;
 ///    vec3 direction;
 /// };
 /// ```
-#[derive(Clone, Copy, Debug, AsStd140)]
+#[derive(Clone, Copy, Debug, Uniform)]
 pub struct DirectionalLight {
     /// Light Color
     pub color: vec3,
@@ -211,7 +207,7 @@ pub struct DirectionalLight {
 }
 
 /// spot light struct
-/// ```glsl,ignore
+/// ```glsl
 /// struct SpotLight {
 ///    vec3 position;
 ///    vec3 color;
@@ -222,7 +218,7 @@ pub struct DirectionalLight {
 ///    float smoothness;
 /// };
 /// ```
-#[derive(Clone, Copy, Debug, AsStd140)]
+#[derive(Clone, Copy, Debug, Uniform)]
 pub struct SpotLight {
     /// Light world position
     pub position: vec3,
@@ -241,7 +237,7 @@ pub struct SpotLight {
 }
 
 /// Environment Uniform
-/// ```glsl,ignore
+/// ```glsl
 /// uniform Environment {
 ///    vec3 ambient_color;
 ///    vec3 camera_position;
@@ -250,7 +246,7 @@ pub struct SpotLight {
 ///    int spot_light_count;
 /// };
 /// ```
-#[derive(Clone, Copy, Debug, AsStd140)]
+#[derive(Clone, Copy, Debug, Uniform)]
 pub struct Environment {
     /// Ambient color for the entire image
     pub ambient_color: vec3,
@@ -265,13 +261,13 @@ pub struct Environment {
 }
 
 /// Material Uniform
-/// ```glsl,ignore
+/// ```glsl
 /// uniform Material {
 ///    UvOffset uv_offset;
 ///    float alpha_cutoff;
 /// };
 /// ```
-#[derive(Clone, Copy, Debug, AsStd140)]
+#[derive(Clone, Copy, Debug, Uniform)]
 #[repr(C, align(16))]
 pub struct Material {
     /// UV offset of material
@@ -291,7 +287,7 @@ impl Material {
 }
 
 /// Sprite Vertex Data
-/// ```glsl,ignore
+/// ```glsl
 /// vec2 dir_x;
 /// vec2 dir_y;
 /// vec2 pos;
@@ -300,7 +296,7 @@ impl Material {
 /// float depth;
 /// vec4 tint;
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, AsStd140)]
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Uniform)]
 #[repr(C, align(4))]
 pub struct SpriteArgs {
     /// Rotation of the sprite, X-axis
@@ -342,40 +338,28 @@ impl SpriteArgs {
     /// * `sprite_render` - `SpriteRender` component reference
     /// * `transform` - 'Transform' component reference
     pub fn from_data<'a>(
-        tex_storage: &AssetStorage<Texture>,
-        sprite_storage: &'a AssetStorage<SpriteSheet>,
-        sprite_render: &SpriteRender,
+        sprite: &'a Sprite,
         transform: &Transform,
         tint: Option<&TintComponent>,
-    ) -> Option<(Self, &'a Handle<Texture>)> {
-        let sprite_sheet = sprite_storage.get(&sprite_render.sprite_sheet)?;
-        if !tex_storage.contains(&sprite_sheet.texture) {
-            return None;
-        }
-
-        let sprite = &sprite_sheet.sprites[sprite_render.sprite_number];
-
+    ) -> Self {
         let transform = convert::<_, Matrix4<f32>>(*transform.global_matrix());
         let dir_x = transform.column(0) * sprite.width;
         let dir_y = transform.column(1) * -sprite.height;
         let pos = transform * Vector4::new(-sprite.offsets[0], -sprite.offsets[1], 0.0, 1.0);
 
-        Some((
-            SpriteArgs {
-                dir_x: dir_x.xy().into_pod(),
-                dir_y: dir_y.xy().into_pod(),
-                pos: pos.xy().into_pod(),
-                u_offset: [sprite.tex_coords.left, sprite.tex_coords.right].into(),
-                v_offset: [sprite.tex_coords.top, sprite.tex_coords.bottom].into(),
-                depth: pos.z,
-                tint: tint.map_or([1.0; 4].into(), |t| {
-                    // Shaders expect linear RGBA; convert sRGBA to linear RGBA
-                    let (r, g, b, a) = t.0.into_linear().into_components();
-                    [r, g, b, a].into()
-                }),
-            },
-            &sprite_sheet.texture,
-        ))
+        SpriteArgs {
+            dir_x: dir_x.xy().into_pod(),
+            dir_y: dir_y.xy().into_pod(),
+            pos: pos.xy().into_pod(),
+            u_offset: [sprite.tex_coords.left, sprite.tex_coords.right].into(),
+            v_offset: [sprite.tex_coords.top, sprite.tex_coords.bottom].into(),
+            depth: pos.z,
+            tint: tint.map_or([1.0; 4].into(), |t| {
+                // Shaders expect linear RGBA; convert sRGBA to linear RGBA
+                let (r, g, b, a) = t.0.into_linear().into_components();
+                [r, g, b, a].into()
+            }),
+        }
     }
 }
 

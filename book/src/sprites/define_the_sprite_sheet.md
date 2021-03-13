@@ -8,7 +8,7 @@ There are two ways to load a sprite sheet definition: from a file or from code.
 The easiest way to load your sprites is to use a sprite sheet definition ron file.
 Here is an example of such a definition file using a list of sprites:
 
-```text,ignore
+```text
 List((
     // Width of the texture used by the sprite sheet
     texture_width: 48,
@@ -41,7 +41,7 @@ List((
 
 Or you can use a grid based definition, for example:
 
-```text,ignore
+```text
 Grid((
     // Width of the texture used by the sprite sheet
     texture_width: 48,
@@ -60,27 +60,26 @@ For more information about list and grid based sprite sheets, including the type
 
 Once you have ron file ready, you can load it using the texture handle of the sheet's image you loaded earlier:
 
-```rust,edition2018,no_run,noplaypen
-# extern crate amethyst;
-# use amethyst::assets::{Loader, AssetStorage, Handle};
-# use amethyst::ecs::{World, WorldExt};
-# use amethyst::renderer::{SpriteSheetFormat, SpriteSheet, Texture};
-#
+```rust
+# use amethyst::assets::{AssetStorage, Handle, Loader};
+# use amethyst::ecs::World;
+# use amethyst::renderer::{SpriteSheet, SpriteSheetFormat, Texture};
+# 
 # fn load_texture() -> Handle<Texture> {
-#    unimplemented!()
+#   unimplemented!()
 # }
-#
+# 
 # fn load_sprite_sheet() {
-#   let world = World::new();
-#   let loader = world.read_resource::<Loader>();
+#   let world = World::default();
+#   let loader = resources.get::<DefaultLoader>();
 #   let texture_handle = load_texture();
-#   let spritesheet_storage = world.read_resource::<AssetStorage<SpriteSheet>>();
-let spritesheet_handle = loader.load(
-    "my_spritesheet.ron",
-    SpriteSheetFormat(texture_handle),
-    (),
-    &spritesheet_storage,
-);
+#   let spritesheet_storage = resources.get::<AssetStorage<SpriteSheet>>();
+    let spritesheet_handle = loader.load(
+        "my_spritesheet.ron",
+        SpriteSheetFormat(texture_handle),
+        (),
+        &spritesheet_storage,
+    );
 # }
 ```
 
@@ -94,18 +93,17 @@ Importantly, **we use pixel coordinates as well as texture coordinates** to defi
 
 The following table lists the differences between the coordinate systems:
 
-| Pixel coordinates                     | Texture coordinates                       |
-| ------------------------------------- | ----------------------------------------- |
-| Begin at the top left of the image    | Begin at the bottom left of the image     |
-| Increase to the right and down        | Increase to the right and up              |
-| Range from 0 to (width or height - 1) | Range from 0.0 to 1.0                     |
+| Pixel coordinates                     | Texture coordinates                   |
+| ------------------------------------- | ------------------------------------- |
+| Begin at the top left of the image    | Begin at the bottom left of the image |
+| Increase to the right and down        | Increase to the right and up          |
+| Range from 0 to (width or height - 1) | Range from 0.0 to 1.0                 |
 
 In Amethyst, pixel dimensions and texture coordinates are stored in the `Sprite` struct. Since texture coordinates can be derived from pixel coordinates, Amethyst provides the `Sprite::from_pixel_values` function to create a `Sprite`.
 
 The following snippet shows you how to naively define a `SpriteSheet`. In a real application, you would typically use the sprite sheet from file feature, which is much more convenient.
 
-```rust,edition2018,no_run,noplaypen
-# extern crate amethyst;
+```rust
 use amethyst::assets::Handle;
 use amethyst::renderer::{sprite::TextureCoordinates, Sprite, SpriteSheet, Texture};
 
@@ -133,14 +131,9 @@ pub fn load_sprite_sheet(texture: Handle<Texture>) -> SpriteSheet {
     );
     sprites.push(sprite);
 
-    SpriteSheet {
-        texture,
-        sprites,
-    }
+    SpriteSheet { texture, sprites }
 }
 ```
-
-
 
 [doc_grid]: https://docs.amethyst.rs/master/amethyst_rendy/sprite/struct.SpriteGrid.html
 [doc_list]: https://docs.amethyst.rs/master/amethyst_rendy/sprite/struct.SpriteList.html

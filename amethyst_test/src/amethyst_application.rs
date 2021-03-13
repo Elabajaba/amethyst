@@ -2,8 +2,8 @@ use std::{any::Any, marker::PhantomData, panic, path::PathBuf, sync::Mutex};
 
 use amethyst::{
     self,
-    core::{transform::TransformBundle, EventReader, RunNowDesc, SystemBundle, SystemDesc},
-    ecs::prelude::*,
+    core::{transform::TransformBundle, EventReader, RunNowDesc, SystemBundle},
+    ecs::*,
     error::Error,
     input::{BindingTypes, InputBundle},
     prelude::*,
@@ -23,8 +23,8 @@ use crate::{
 
 type BundleAddFn = Box<
     dyn FnOnce(
-        GameDataBuilder<'static, 'static>,
-    ) -> Result<GameDataBuilder<'static, 'static>, Error>,
+        DispatcherBuilder<'static, 'static>,
+    ) -> Result<DispatcherBuilder<'static, 'static>, Error>,
 >;
 // Hack: Ideally we want a `SendBoxFnOnce`. However implementing it got too crazy:
 //
@@ -73,14 +73,14 @@ where
 {
     /// Functions to add bundles to the game data.
     ///
-    /// This is necessary because `System`s are not `Send`, and so we cannot send `GameDataBuilder`
+    /// This is necessary because `System`s are not `Send`, and so we cannot send `DispatcherBuilder`
     /// across a thread boundary, necessary to run the `Application` in a sub thread to avoid a
     /// segfault caused by mesa and the software GL renderer.
     #[derivative(Debug = "ignore")]
     bundle_add_fns: Vec<BundleAddFn>,
     /// Functions to add bundles to the game data.
     ///
-    /// This is necessary because `System`s are not `Send`, and so we cannot send `GameDataBuilder`
+    /// This is necessary because `System`s are not `Send`, and so we cannot send `DispatcherBuilder`
     /// across a thread boundary, necessary to run the `Application` in a sub thread to avoid a
     /// segfault caused by mesa and the software GL renderer.
     #[derivative(Debug = "ignore")]
@@ -115,9 +115,9 @@ impl AmethystApplication<GameData<'static, 'static>, StateEvent, StateEventReade
     pub fn ui_base<B: BindingTypes>(
     ) -> AmethystApplication<GameData<'static, 'static>, StateEvent, StateEventReader> {
         AmethystApplication::blank()
-            .with_bundle(TransformBundle::new())
+            .add_bundle(TransformBundle::new())
             .with_ui_bundles::<B>()
-            .with_resource(ScreenDimensions::new(SCREEN_WIDTH, SCREEN_HEIGHT, HIDPI))
+            .with_resource(ScreenDimensions::new(SCREEN_WIDTH, SCREEN_HEIGHT))
     }
 
     /// Returns a `PathBuf` to `<crate_dir>/assets`.
@@ -167,9 +167,9 @@ where
     where
         for<'b> R: EventReader<'b, Event = E>,
     {
-        let game_data = bundle_add_fns.into_iter().fold(
-            Ok(GameDataBuilder::default()),
-            |game_data: Result<GameDataBuilder<'_, '_>, Error>, function: BundleAddFn| {
+        let mut game_data = bundle_add_fns.into_iter().fold(
+            Ok(DispatcherBuilder::default()),
+            |game_data: Result<DispatcherBuilder<'_, '_>, Error>, function: BundleAddFn| {
                 game_data.and_then(function)
             },
         )?;
@@ -189,7 +189,7 @@ where
 
     fn build_application<S>(
         first_state: S,
-        game_data: GameDataBuilder<'static, 'static>,
+        game_data: DispatcherBuilder<'static, 'static>,
         resource_add_fns: Vec<FnResourceAdd>,
         setup_fns: Vec<FnSetup>,
     ) -> Result<CoreApplication<'static, GameData<'static, 'static>, E, R>, Error>
@@ -319,7 +319,7 @@ where
     /// # Parameters
     ///
     /// * `bundle`: Bundle to add.
-    pub fn with_bundle<B>(mut self, bundle: B) -> Self
+    pub fn add_bundle<B>(mut self, bundle: B) -> Self
     where
         B: SystemBundle<'static, 'static> + Send + 'static,
     {
@@ -340,29 +340,28 @@ where
         // `SendBoxFnOnce` is an implementation of this.
         //
         // See <https://users.rust-lang.org/t/move-a-boxed-function-inside-a-closure/18199>
-        self.bundle_add_fns
-            .push(Box::new(|game_data: GameDataBuilder<'static, 'static>| {
-                game_data.with_bundle(bundle)
-            }));
+        self.bundle_add_fns.push(Box::new(
+            |game_data: DispatcherBuilder<'static, 'static>| game_data.add_bundle(bundle),
+        ));
         self
     }
 
     /// Adds a bundle to the list of bundles.
     ///
-    /// This provides an alternative to `.with_bundle(B)` where `B` is `!Send`. The function that
+    /// This provides an alternative to `.add_bundle(B)` where `B` is `!Send`. The function that
     /// instantiates the bundle must be `Send`.
     ///
     /// # Parameters
     ///
     /// * `bundle_function`: Function to instantiate the Bundle.
-    pub fn with_bundle_fn<FnBundle, B>(mut self, bundle_function: FnBundle) -> Self
+    pub fn add_bundle_fn<FnBundle, B>(mut self, bundle_function: FnBundle) -> Self
     where
         FnBundle: FnOnce() -> B + Send + 'static,
         B: SystemBundle<'static, 'static> + 'static,
     {
         self.bundle_add_fns.push(Box::new(
-            move |game_data: GameDataBuilder<'static, 'static>| {
-                game_data.with_bundle(bundle_function())
+            move |game_data: DispatcherBuilder<'static, 'static>| {
+                game_data.add_bundle(bundle_function())
             },
         ));
         self
@@ -370,15 +369,12 @@ where
 
     /// Registers `InputBundle` and `UiBundle` with this application.
     ///
-    /// This method is provided to avoid [stringly-typed][stringly] parameters for the Input and UI
-    /// bundles. We recommended that you use strong types instead of `<StringBindings>`.
-    ///
     /// # Type Parameters
     ///
     /// * `B`: Type representing the input binding types.
-    pub fn with_ui_bundles<B: BindingTypes>(self) -> Self {
-        self.with_bundle(InputBundle::<B>::new())
-            .with_bundle(UiBundle::<B>::new())
+    pub fn with_ui_bundles(self) -> Self {
+        self.add_bundle(InputBundle::new())
+            .add_bundle(UiBundle::new())
     }
 
     /// Adds a resource to the `World`.
@@ -435,7 +431,7 @@ where
             .map(Clone::clone)
             .map(Into::<String>::into)
             .collect::<Vec<String>>();
-        self.with_bundle_fn(move || SystemInjectionBundle::new(system, name, deps))
+        self.add_bundle_fn(move || SystemInjectionBundle::new(system, name, deps))
     }
 
     /// Registers a `System` into this application's `GameData`.
@@ -457,7 +453,7 @@ where
             .map(Clone::clone)
             .map(Into::<String>::into)
             .collect::<Vec<String>>();
-        self.with_bundle_fn(move || SystemDescInjectionBundle::new(system_desc, name, deps))
+        self.add_bundle_fn(move || SystemDescInjectionBundle::new(system_desc, name, deps))
     }
 
     /// Registers a thread local `System` into this application's `GameData`.
@@ -470,7 +466,7 @@ where
         RNDesc: RunNowDesc<'static, 'static, RN> + Send + Sync + 'static,
         RN: for<'sys_local> RunNow<'sys_local> + Send + 'static,
     {
-        self.with_bundle_fn(move || ThreadLocalInjectionBundle::new(run_now_desc))
+        self.add_bundle_fn(move || ThreadLocalInjectionBundle::new(run_now_desc))
     }
 
     /// Registers a `System` to run in a `CustomDispatcherState`.
@@ -591,10 +587,10 @@ mod test {
     use std::marker::PhantomData;
 
     use amethyst::{
-        assets::{Asset, AssetStorage, Handle, Loader, ProcessingState, Processor},
+        assets::{Asset, AssetStorage, DefaultLoader, Handle, Loader, ProcessingState, Processor},
         core::{bundle::SystemBundle, SystemDesc},
         derive::SystemDesc,
-        ecs::prelude::*,
+        ecs::*,
         error::Error,
         prelude::*,
         ui::FontAsset,
@@ -606,14 +602,14 @@ mod test {
 
     #[test]
     fn bundle_build_is_ok() -> Result<(), Error> {
-        AmethystApplication::blank().with_bundle(BundleZero).run()
+        AmethystApplication::blank().add_bundle(BundleZero).run()
     }
 
     #[test]
     fn load_multiple_bundles() -> Result<(), Error> {
         AmethystApplication::blank()
-            .with_bundle(BundleZero)
-            .with_bundle(BundleOne)
+            .add_bundle(BundleZero)
+            .add_bundle(BundleOne)
             .run()
     }
 
@@ -625,8 +621,8 @@ mod test {
         };
 
         AmethystApplication::blank()
-            .with_bundle(BundleZero)
-            .with_bundle(BundleOne)
+            .add_bundle(BundleZero)
+            .add_bundle(BundleOne)
             .with_assertion(assertion_fn)
             .run()
     }
@@ -735,7 +731,7 @@ mod test {
         };
 
         AmethystApplication::blank()
-            .with_bundle(BundleAsset)
+            .add_bundle(BundleAsset)
             .with_effect(effect_fn)
             .with_assertion(assertion_fn)
             .run()
@@ -769,7 +765,7 @@ mod test {
         };
 
         AmethystApplication::blank()
-            .with_bundle(BundleAsset)
+            .add_bundle(BundleAsset)
             .with_setup(setup_fns)
             .with_state(state_fns)
             .with_effect(effect_fn)
@@ -787,7 +783,7 @@ mod test {
             world.read_resource::<ScreenDimensions>();
         };
 
-        AmethystApplication::ui_base::<amethyst::input::StringBindings>()
+        AmethystApplication::ui_base()
             .with_assertion(assertion_fn)
             .run()
     }
@@ -795,7 +791,7 @@ mod test {
     #[test]
     fn with_system_runs_system_every_tick() -> Result<(), Error> {
         let effect_fn = |world: &mut World| {
-            let entity = world.create_entity().with(ComponentZero(0)).build();
+            let entity = world.push((ComponentZero(0),));
 
             world.insert(EffectReturn(entity));
         };
@@ -844,7 +840,7 @@ mod test {
             .with_setup(|world| {
                 world.register::<ComponentZero>();
 
-                let entity = world.create_entity().with(ComponentZero(0)).build();
+                let entity = world.push((ComponentZero(0),));
                 world.insert(EffectReturn(entity));
             })
             .with_system_single(SystemEffect, "system_effect", &[])
@@ -946,12 +942,11 @@ mod test {
     /// **Note:** If you simply need an audio file to be loaded, just add a `Processor::<Source>` in
     /// the test setup:
     ///
-    /// ```rust,ignore
+    /// ```
     /// use amethyst::{assets::Processor, audio::Source};
     ///
-    /// AmethystApplication::blank()
-    ///     .with_system(Processor::<Source>::new(), "source_processor", &[])
-    ///     // ...
+    /// AmethystApplication::blank().with_system(Processor::<Source>::new(), "source_processor", &[])
+    /// // ...
     /// ```
     ///
     /// For more details, see <https://github.com/amethyst/amethyst/issues/1595>.
@@ -968,7 +963,7 @@ mod test {
         #[test]
         fn audio_zero() -> Result<(), Error> {
             AmethystApplication::blank()
-                .with_bundle(AudioBundle::default())
+                .add_bundle(AudioBundle::default())
                 .with_assertion(|world| {
                     world.read_resource::<AssetStorage<Source>>();
                 })
@@ -978,7 +973,7 @@ mod test {
         #[test]
         fn audio_one() -> Result<(), Error> {
             AmethystApplication::blank()
-                .with_bundle(AudioBundle::default())
+                .add_bundle(AudioBundle::default())
                 .with_assertion(|world| {
                     world.read_resource::<AssetStorage<Source>>();
                 })
@@ -988,7 +983,7 @@ mod test {
         #[test]
         fn audio_two() -> Result<(), Error> {
             AmethystApplication::blank()
-                .with_bundle_fn(|| AudioBundle::default())
+                .add_bundle_fn(|| AudioBundle::default())
                 .with_assertion(|world| {
                     world.read_resource::<AssetStorage<Source>>();
                 })
@@ -998,7 +993,7 @@ mod test {
         #[test]
         fn audio_three() -> Result<(), Error> {
             AmethystApplication::blank()
-                .with_bundle_fn(|| AudioBundle::default())
+                .add_bundle_fn(|| AudioBundle::default())
                 .with_assertion(|world| {
                     world.read_resource::<AssetStorage<Source>>();
                 })
@@ -1040,7 +1035,7 @@ mod test {
         S: State<GameData<'a, 'b>, E> + 'static,
         E: Send + Sync + 'static,
     {
-        fn update(&mut self, data: StateData<'_, GameData<'_, '_>>) -> Trans<GameData<'a, 'b>, E> {
+        fn update(&mut self, data: StateData<'_, GameData>) -> Trans<GameData<'a, 'b>, E> {
             data.data.update(&data.world);
             data.world.insert(LoadResource);
             Trans::Switch(Box::new(self.next_state.take().unwrap()))
@@ -1163,12 +1158,10 @@ mod test {
     #[derive(Debug, PartialEq)]
     struct AssetZero(u32);
     impl Asset for AssetZero {
-        const NAME: &'static str = "amethyst_test::AssetZero";
+        fn name() -> &'static str {
+            "amethyst_test::AssetZero"
+        }
         type Data = Self;
-        type HandleStorage = VecStorage<Handle<Self>>;
-    }
-    impl Component for AssetZero {
-        type Storage = DenseVecStorage<Self>;
     }
     impl From<AssetZero> for Result<ProcessingState<AssetZero>, Error> {
         fn from(asset_translation_zero: AssetZero) -> Result<ProcessingState<AssetZero>, Error> {
@@ -1184,7 +1177,7 @@ mod test {
             world: &World,
             asset_translation_zero: AssetZero,
         ) -> Result<AssetZeroHandle, Error> {
-            let loader = world.read_resource::<Loader>();
+            let loader = data.resources.get::<DefaultLoader>().unwrap();
             Ok(loader.load_from_data(
                 asset_translation_zero,
                 (),
@@ -1195,7 +1188,4 @@ mod test {
 
     // === Components === //
     struct ComponentZero(pub i32);
-    impl Component for ComponentZero {
-        type Storage = DenseVecStorage<Self>;
-    }
 }

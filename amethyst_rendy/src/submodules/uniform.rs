@@ -1,4 +1,9 @@
 //!  Helper abstraction for per-image uniform submission.
+use core::marker::PhantomData;
+
+use glsl_layout::Uniform;
+use rendy::resource::SubRange;
+
 use crate::{
     rendy::{
         command::RenderPassEncoder,
@@ -10,14 +15,12 @@ use crate::{
         },
     },
     types::Backend,
-    util,
+    util::{self},
 };
-use core::marker::PhantomData;
-use glsl_layout::AsStd140;
 
 /// Provides per-image abstraction for an arbitrary `DescriptorSet`.
 #[derive(Debug)]
-pub struct DynamicUniform<B: Backend, T: AsStd140>
+pub struct DynamicUniform<B: Backend, T: Uniform>
 where
     T::Std140: Sized,
 {
@@ -26,7 +29,7 @@ where
 }
 
 #[derive(Debug)]
-struct PerImageDynamicUniform<B: Backend, T: AsStd140>
+struct PerImageDynamicUniform<B: Backend, T: Uniform>
 where
     T::Std140: Sized,
 {
@@ -35,7 +38,7 @@ where
     marker: PhantomData<T>,
 }
 
-impl<B: Backend, T: AsStd140> DynamicUniform<B, T>
+impl<B: Backend, T: Uniform> DynamicUniform<B, T>
 where
     T::Std140: Sized,
 {
@@ -44,12 +47,19 @@ where
     pub fn new(
         factory: &Factory<B>,
         flags: hal::pso::ShaderStageFlags,
-    ) -> Result<Self, failure::Error> {
+    ) -> Result<Self, hal::pso::CreationError> {
+        use rendy::hal::pso::*;
+
         Ok(Self {
             layout: factory
                 .create_descriptor_set_layout(util::set_layout_bindings(Some((
                     1,
-                    hal::pso::DescriptorType::UniformBuffer,
+                    DescriptorType::Buffer {
+                        ty: BufferDescriptorType::Uniform,
+                        format: BufferDescriptorFormat::Structured {
+                            dynamic_offset: false,
+                        },
+                    },
                     flags,
                 ))))?
                 .into(),
@@ -99,7 +109,7 @@ where
     }
 }
 
-impl<B: Backend, T: AsStd140> PerImageDynamicUniform<B, T>
+impl<B: Backend, T: Uniform> PerImageDynamicUniform<B, T>
 where
     T::Std140: Sized,
 {
@@ -115,7 +125,7 @@ where
             .unwrap();
 
         let set = factory.create_descriptor_set(layout.clone()).unwrap();
-        let desc = hal::pso::Descriptor::Buffer(buffer.raw(), None..None);
+        let desc = hal::pso::Descriptor::Buffer(buffer.raw(), SubRange::WHOLE);
         unsafe {
             let set = set.raw();
             factory.write_descriptor_sets(Some(util::desc_write(set, 0, desc)));

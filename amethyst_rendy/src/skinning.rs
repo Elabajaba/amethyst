@@ -1,15 +1,18 @@
 //! Skinned mesh and bone implementation for renderer.
-use amethyst_assets::PrefabData;
-use amethyst_core::{
-    ecs::prelude::{Component, DenseVecStorage, Entity, FlaggedStorage, WriteStorage},
-    math::Matrix4,
+use amethyst_assets::{
+    erased_serde::private::serde::{de, de::SeqAccess, ser::SerializeSeq},
+    prefab::{
+        register_component_type,
+        serde_diff::{ApplyContext, DiffContext},
+        SerdeDiff,
+    },
 };
-use amethyst_error::Error;
+use amethyst_core::{ecs::*, math::Matrix4};
 use rendy::{
     hal::format::Format,
     mesh::{AsAttribute, AsVertex, VertexFormat},
 };
-use std::result::Result as StdResult;
+use type_uuid::TypeUuid;
 
 /// Type for joint weights attribute of vertex
 #[repr(C)]
@@ -70,7 +73,8 @@ impl AsVertex for JointCombined {
 }
 
 /// Transform storage for the skin, should be attached to all mesh entities that use a skin
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize, TypeUuid)]
+#[uuid = "03487599-63f9-4e3b-9e8a-ea73ee08c11d"]
 pub struct JointTransforms {
     /// Skin entity
     pub skin: Entity,
@@ -78,45 +82,31 @@ pub struct JointTransforms {
     pub matrices: Vec<Matrix4<f32>>,
 }
 
-impl Component for JointTransforms {
-    type Storage = FlaggedStorage<Self, DenseVecStorage<Self>>;
-}
-
-/// Prefab for `JointTransforms`
-#[derive(Default, Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct JointTransformsPrefab {
-    /// Index of skin `Entity`
-    pub skin: usize,
-    /// Number of joints in the skin
-    pub size: usize,
-}
-
-impl JointTransformsPrefab {
-    /// Creates a new `JointTransformsPrefab`.
-    pub fn new(skin: usize, size: usize) -> Self {
-        JointTransformsPrefab { skin, size }
+impl Default for JointTransforms {
+    fn default() -> Self {
+        unimplemented!()
     }
 }
 
-impl<'a> PrefabData<'a> for JointTransformsPrefab {
-    type SystemData = WriteStorage<'a, JointTransforms>;
-    type Result = ();
-
-    fn add_to_entity(
+impl SerdeDiff for JointTransforms {
+    fn diff<'a, S: SerializeSeq>(
         &self,
-        entity: Entity,
-        storage: &mut Self::SystemData,
-        entities: &[Entity],
-        _: &[Entity],
-    ) -> StdResult<(), Error> {
-        storage.insert(
-            entity,
-            JointTransforms {
-                skin: entities[self.skin],
-                matrices: vec![Matrix4::identity(); self.size],
-            },
-        )?;
+        ctx: &mut DiffContext<'a, S>,
+        other: &Self,
+    ) -> Result<bool, <S as SerializeSeq>::Error> {
+        unimplemented!()
+    }
 
-        Ok(())
+    fn apply<'de, A>(
+        &mut self,
+        seq: &mut A,
+        ctx: &mut ApplyContext,
+    ) -> Result<bool, <A as SeqAccess<'de>>::Error>
+    where
+        A: de::SeqAccess<'de>,
+    {
+        unimplemented!()
     }
 }
+
+register_component_type!(JointTransforms);
